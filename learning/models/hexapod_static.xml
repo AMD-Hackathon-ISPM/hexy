@@ -1,0 +1,165 @@
+<mujoco model="vendor_agnostic_hexapod_static">
+  <compiler angle="degree" meshdir="../STLFILES"/>
+  <option timestep="0.01" gravity="0 0 -9.81"/>
+
+  <visual>
+    <headlight ambient="0.5 0.5 0.5" diffuse="0.7 0.7 0.7" specular="0.1 0.1 0.1"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+  </visual>
+
+  <asset>
+    <mesh name="BODY" file="BODY.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Coxa_B_L" file="Coxa.B.L.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Coxa_B_R" file="Coxa.B.R.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Coxa_C_L" file="Coxa.C.L.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Coxa_C_R" file="Coxa.C.R.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Coxa_F_L" file="Coxa.F.L.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Coxa_F_R" file="Coxa.F.R.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Femur_B_L" file="Femur.B.L.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Femur_B_R" file="Femur.B.R.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Femur_C_L" file="Femur.C.L.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Femur_C_R" file="Femur.C.R.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Femur_F_L" file="Femur.F.L.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Femur_F_R" file="Femur.F.R.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Tibia_B_L" file="Tibia.B.L.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Tibia_B_R" file="Tibia.B.R.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Tibia_C_L" file="Tibia.C.L.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Tibia_C_R" file="Tibia.C.R.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Tibia_F_L" file="Tibia.F.L.stl" scale="0.0254 0.0254 0.0254"/>
+    <mesh name="Tibia_F_R" file="Tibia.F.R.stl" scale="0.0254 0.0254 0.0254"/>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.18 0.18 0.20" rgb2="0.28 0.28 0.32" width="512" height="512"/>
+    <material name="grid" texture="grid" texrepeat="6 6" reflectance="0.1"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 2.5" dir="0 0 -1"/>
+    <geom name="floor" type="plane" pos="0 0 0" size="3 3 0.1" material="grid"/>
+
+    <body name="hexapod" pos="0 0 0.065">
+      <geom name="body_visual" type="mesh" mesh="BODY" pos="0.000000 0.001821 -0.065769" rgba="0.72 0.72 0.76 1" contype="1" conaffinity="1" friction="0.8 0.1 0.1"/>
+
+      <body name="front_left" pos="0.030114 -0.038011 -0.012401">
+        <inertial pos="0 0 0" mass="0.20" diaginertia="0.00025 0.00025 0.00025"/>
+        <joint name="front_left_coxa_joint" type="hinge" axis="0 0 1" range="-45 45" damping="2" armature="0.01"/>
+        <geom type="mesh" mesh="Coxa_F_L" pos="-0.030114 0.039807 -0.053366" rgba="0.85 0.35 0.25 1" density="250.0" contype="1" conaffinity="1" friction="0.8 0.1 0.1"/>
+        <body name="front_left_femur" pos="0.009459 -0.002609 0.007674">
+          <inertial pos="0 0 0" mass="0.15" diaginertia="0.00018 0.00018 0.00018"/>
+          <joint name="front_left_femur_joint" type="hinge" axis="0 1 0" range="-70 70" damping="2" armature="0.01"/>
+          <geom type="mesh" mesh="Femur_F_L" pos="-0.039573 0.042415 -0.061040" rgba="0.25 0.55 0.85 1" density="250.0" contype="1" conaffinity="1" friction="0.8 0.1 0.1"/>
+          <body name="front_left_tibia" pos="0.044344 -0.044318 -0.004286">
+            <inertial pos="0 0 0" mass="0.10" diaginertia="0.00012 0.00012 0.00012"/>
+            <joint name="front_left_tibia_joint" type="hinge" axis="0 1 0" range="-120 20" damping="1" armature="0.01"/>
+            <geom type="mesh" mesh="Tibia_F_L" pos="-0.083918 0.086734 -0.056754" rgba="0.25 0.75 0.45 1" density="250.0" contype="1" conaffinity="1" friction="1.2 0.2 0.2"/>
+            <geom name="front_left_foot" type="sphere" pos="0.006977 -0.014958 -0.055788" size="0.02" rgba="0 0 0 0" contype="1" conaffinity="1" friction="1.8 0.2 0.2"/>
+          </body>
+        </body>
+      </body>
+
+      <body name="front_right" pos="-0.030114 -0.038011 -0.012401">
+        <inertial pos="0 0 0" mass="0.20" diaginertia="0.00025 0.00025 0.00025"/>
+        <joint name="front_right_coxa_joint" type="hinge" axis="0 0 -1" range="-45 45" damping="2" armature="0.01"/>
+        <geom type="mesh" mesh="Coxa_F_R" pos="0.030114 0.039807 -0.053366" rgba="0.85 0.35 0.25 1" density="250.0" contype="1" conaffinity="1" friction="0.8 0.1 0.1"/>
+        <body name="front_right_femur" pos="-0.009459 -0.002609 0.007674">
+          <inertial pos="0 0 0" mass="0.15" diaginertia="0.00018 0.00018 0.00018"/>
+          <joint name="front_right_femur_joint" type="hinge" axis="0 -1 0" range="-70 70" damping="2" armature="0.01"/>
+          <geom type="mesh" mesh="Femur_F_R" pos="0.039573 0.042415 -0.061040" rgba="0.25 0.55 0.85 1" density="250.0" contype="1" conaffinity="1" friction="0.8 0.1 0.1"/>
+          <body name="front_right_tibia" pos="-0.044344 -0.044318 -0.004286">
+            <inertial pos="0 0 0" mass="0.10" diaginertia="0.00012 0.00012 0.00012"/>
+            <joint name="front_right_tibia_joint" type="hinge" axis="0 -1 0" range="-120 20" damping="1" armature="0.01"/>
+            <geom type="mesh" mesh="Tibia_F_R" pos="0.083918 0.086734 -0.056754" rgba="0.25 0.75 0.45 1" density="250.0" contype="1" conaffinity="1" friction="1.2 0.2 0.2"/>
+            <geom name="front_right_foot" type="sphere" pos="-0.006977 -0.014958 -0.055788" size="0.02" rgba="0 0 0 0" contype="1" conaffinity="1" friction="1.8 0.2 0.2"/>
+          </body>
+        </body>
+      </body>
+
+      <body name="center_left" pos="0.035857 0.001244 0.014377">
+        <inertial pos="0 0 0" mass="0.20" diaginertia="0.00025 0.00025 0.00025"/>
+        <joint name="center_left_coxa_joint" type="hinge" axis="0 0 1" range="-45 45" damping="2" armature="0.01"/>
+        <geom type="mesh" mesh="Coxa_C_L" pos="-0.035858 0.000069 -0.080147" rgba="0.85 0.35 0.25 1" density="250.0" contype="1" conaffinity="1" friction="0.8 0.1 0.1"/>
+        <body name="center_left_femur" pos="0.011493 0.010206 -0.019106">
+          <inertial pos="0 0 0" mass="0.15" diaginertia="0.00018 0.00018 0.00018"/>
+          <joint name="center_left_femur_joint" type="hinge" axis="0 1 0" range="-70 70" damping="2" armature="0.01"/>
+          <geom type="mesh" mesh="Femur_C_L" pos="-0.047352 -0.010136 -0.061040" rgba="0.25 0.55 0.85 1" density="250.0" contype="1" conaffinity="1" friction="0.8 0.1 0.1"/>
+          <body name="center_left_tibia" pos="0.062699 0.000019 -0.004286">
+            <inertial pos="0 0 0" mass="0.10" diaginertia="0.00012 0.00012 0.00012"/>
+            <joint name="center_left_tibia_joint" type="hinge" axis="0 1 0" range="-120 20" damping="1" armature="0.01"/>
+            <geom type="mesh" mesh="Tibia_C_L" pos="-0.110046 -0.010155 -0.056754" rgba="0.25 0.75 0.45 1" density="250.0" contype="1" conaffinity="1" friction="1.2 0.2 0.2"/>
+            <geom name="center_left_foot" type="sphere" pos="0.015510 -0.005644 -0.055788" size="0.02" rgba="0 0 0 0" contype="1" conaffinity="1" friction="1.8 0.2 0.2"/>
+          </body>
+        </body>
+      </body>
+
+      <body name="center_right" pos="-0.035857 0.001244 0.014377">
+        <inertial pos="0 0 0" mass="0.20" diaginertia="0.00025 0.00025 0.00025"/>
+        <joint name="center_right_coxa_joint" type="hinge" axis="0 0 -1" range="-45 45" damping="2" armature="0.01"/>
+        <geom type="mesh" mesh="Coxa_C_R" pos="0.035857 0.000069 -0.080147" rgba="0.85 0.35 0.25 1" density="250.0" contype="1" conaffinity="1" friction="0.8 0.1 0.1"/>
+        <body name="center_right_femur" pos="-0.011493 0.010206 -0.019106">
+          <inertial pos="0 0 0" mass="0.15" diaginertia="0.00018 0.00018 0.00018"/>
+          <joint name="center_right_femur_joint" type="hinge" axis="0 -1 0" range="-70 70" damping="2" armature="0.01"/>
+          <geom type="mesh" mesh="Femur_C_R" pos="0.047351 -0.010136 -0.061040" rgba="0.25 0.55 0.85 1" density="250.0" contype="1" conaffinity="1" friction="0.8 0.1 0.1"/>
+          <body name="center_right_tibia" pos="-0.062699 0.000019 -0.004286">
+            <inertial pos="0 0 0" mass="0.10" diaginertia="0.00012 0.00012 0.00012"/>
+            <joint name="center_right_tibia_joint" type="hinge" axis="0 -1 0" range="-120 20" damping="1" armature="0.01"/>
+            <geom type="mesh" mesh="Tibia_C_R" pos="0.110046 -0.010155 -0.056754" rgba="0.25 0.75 0.45 1" density="250.0" contype="1" conaffinity="1" friction="1.2 0.2 0.2"/>
+            <geom name="center_right_foot" type="sphere" pos="-0.015510 -0.005644 -0.055788" size="0.02" rgba="0 0 0 0" contype="1" conaffinity="1" friction="1.8 0.2 0.2"/>
+          </body>
+        </body>
+      </body>
+
+      <body name="back_left" pos="0.015529 0.043298 -0.012403">
+        <inertial pos="0 0 0" mass="0.20" diaginertia="0.00025 0.00025 0.00025"/>
+        <joint name="back_left_coxa_joint" type="hinge" axis="0 0 1" range="-45 45" damping="2" armature="0.01"/>
+        <geom type="mesh" mesh="Coxa_B_L" pos="-0.015529 -0.041479 -0.053364" rgba="0.85 0.35 0.25 1" density="250.0" contype="1" conaffinity="1" friction="0.8 0.1 0.1"/>
+        <body name="back_left_femur" pos="0.005152 0.012775 0.007675">
+          <inertial pos="0 0 0" mass="0.15" diaginertia="0.00018 0.00018 0.00018"/>
+          <joint name="back_left_femur_joint" type="hinge" axis="0 1 0" range="-70 70" damping="2" armature="0.01"/>
+          <geom type="mesh" mesh="Femur_B_L" pos="-0.020682 -0.054254 -0.061040" rgba="0.25 0.55 0.85 1" density="250.0" contype="1" conaffinity="1" friction="0.8 0.1 0.1"/>
+          <body name="back_left_tibia" pos="0.044318 0.044344 -0.004286">
+            <inertial pos="0 0 0" mass="0.10" diaginertia="0.00012 0.00012 0.00012"/>
+            <joint name="back_left_tibia_joint" type="hinge" axis="0 1 0" range="-120 20" damping="1" armature="0.01"/>
+            <geom type="mesh" mesh="Tibia_B_L" pos="-0.065001 -0.098598 -0.056753" rgba="0.25 0.75 0.45 1" density="250.0" contype="1" conaffinity="1" friction="1.2 0.2 0.2"/>
+            <geom name="back_left_foot" type="sphere" pos="0.014958 0.006977 -0.055788" size="0.02" rgba="0 0 0 0" contype="1" conaffinity="1" friction="1.8 0.2 0.2"/>
+          </body>
+        </body>
+      </body>
+
+      <body name="back_right" pos="-0.015529 0.043298 -0.012403">
+        <inertial pos="0 0 0" mass="0.20" diaginertia="0.00025 0.00025 0.00025"/>
+        <joint name="back_right_coxa_joint" type="hinge" axis="0 0 -1" range="-45 45" damping="2" armature="0.01"/>
+        <geom type="mesh" mesh="Coxa_B_R" pos="0.015529 -0.041479 -0.053365" rgba="0.85 0.35 0.25 1" density="250.0" contype="1" conaffinity="1" friction="0.8 0.1 0.1"/>
+        <body name="back_right_femur" pos="-0.005152 0.012775 0.007675">
+          <inertial pos="0 0 0" mass="0.15" diaginertia="0.00018 0.00018 0.00018"/>
+          <joint name="back_right_femur_joint" type="hinge" axis="0 -1 0" range="-70 70" damping="2" armature="0.01"/>
+          <geom type="mesh" mesh="Femur_B_R" pos="0.020682 -0.054254 -0.061040" rgba="0.25 0.55 0.85 1" density="250.0" contype="1" conaffinity="1" friction="0.8 0.1 0.1"/>
+          <body name="back_right_tibia" pos="-0.044318 0.044344 -0.004286">
+            <inertial pos="0 0 0" mass="0.10" diaginertia="0.00012 0.00012 0.00012"/>
+            <joint name="back_right_tibia_joint" type="hinge" axis="0 -1 0" range="-120 20" damping="1" armature="0.01"/>
+            <geom type="mesh" mesh="Tibia_B_R" pos="0.065001 -0.098598 -0.056753" rgba="0.25 0.75 0.45 1" density="250.0" contype="1" conaffinity="1" friction="1.2 0.2 0.2"/>
+            <geom name="back_right_foot" type="sphere" pos="-0.014958 0.006977 -0.055788" size="0.02" rgba="0 0 0 0" contype="1" conaffinity="1" friction="1.8 0.2 0.2"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <motor name="front_left_coxa_motor" joint="front_left_coxa_joint" gear="60" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="front_left_femur_motor" joint="front_left_femur_joint" gear="80" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="front_left_tibia_motor" joint="front_left_tibia_joint" gear="80" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="front_right_coxa_motor" joint="front_right_coxa_joint" gear="60" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="front_right_femur_motor" joint="front_right_femur_joint" gear="80" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="front_right_tibia_motor" joint="front_right_tibia_joint" gear="80" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="center_left_coxa_motor" joint="center_left_coxa_joint" gear="60" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="center_left_femur_motor" joint="center_left_femur_joint" gear="80" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="center_left_tibia_motor" joint="center_left_tibia_joint" gear="80" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="center_right_coxa_motor" joint="center_right_coxa_joint" gear="60" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="center_right_femur_motor" joint="center_right_femur_joint" gear="80" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="center_right_tibia_motor" joint="center_right_tibia_joint" gear="80" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="back_left_coxa_motor" joint="back_left_coxa_joint" gear="60" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="back_left_femur_motor" joint="back_left_femur_joint" gear="80" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="back_left_tibia_motor" joint="back_left_tibia_joint" gear="80" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="back_right_coxa_motor" joint="back_right_coxa_joint" gear="60" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="back_right_femur_motor" joint="back_right_femur_joint" gear="80" ctrllimited="true" ctrlrange="-1 1"/>
+    <motor name="back_right_tibia_motor" joint="back_right_tibia_joint" gear="80" ctrllimited="true" ctrlrange="-1 1"/>
+  </actuator>
+</mujoco>

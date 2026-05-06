@@ -1,0 +1,9 @@
+# Core simulation stack.
+# JAX itself is installed in the Docker image so we can swap CPU/GPU backends
+# without locking this file to one accelerator flavor.
+brax
+mujoco==3.8.0
+trimesh==4.12.2
+numpy>=1.26,<3.0
+scipy>=1.13,<2.0
+etils>=1.9

@@ -3,6 +3,4 @@ dist
 .git
 .env
 .env.*
-Dockerfile
-nginx.conf
 .dockerignore

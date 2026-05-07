@@ -12,7 +12,7 @@ ws://localhost:8000/audio/whisper?interval_sec=3
 Messages:
 - Transcript chunk:
 ```
-{"transcript":"help","timestamp":1710000000.0,"direction":"left","pan":-0.4}
+{"transcript":"help","timestamp":1710000000.0,"direction":"left","pan":-0.4,"distance_m":6.2,"rms":0.0521,"source_id":"humanoid-2"}
 ```
 - Audio alert:
 ```
@@ -50,3 +50,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 - Random emission controls:
 	- WHISPER_EMIT_PROB (0-1)
 	- WHISPER_MIN_INTERVAL_SEC / WHISPER_MAX_INTERVAL_SEC
+- Distance + audibility controls:
+	- WHISPER_MIN_DISTANCE_M / WHISPER_MAX_DISTANCE_M
+	- WHISPER_DISTANCE_REF_M / WHISPER_DISTANCE_ROLLOFF
+	- WHISPER_AUDIO_RMS_THRESHOLD
+	- WHISPER_AUDIO_RMS_MAX

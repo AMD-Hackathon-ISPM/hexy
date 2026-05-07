@@ -1,39 +1,34 @@
 import { useEffect, useRef } from 'react'
 import { useRobotStatusStore } from '@/stores/useRobotStatusStore'
+import type { DinoDetection } from '@/stores/useRobotStatusStore'
 
 const DEFAULT_BASE_URL = ''
-const STREAM_INTERVAL_SEC = 3
-const ALERT_TTL_MS = 4500
+const STREAM_INTERVAL_MS = 200
+const FRAME_WIDTH = 640
+const FRAME_HEIGHT = 360
 
 function buildWsUrl(baseUrl: string) {
+  const params = new URLSearchParams({
+    interval_ms: String(STREAM_INTERVAL_MS),
+    width: String(FRAME_WIDTH),
+    height: String(FRAME_HEIGHT),
+  })
+
   if (!baseUrl) {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    return `${proto}://${window.location.host}/audio/whisper?interval_sec=${STREAM_INTERVAL_SEC}`
+    return `${proto}://${window.location.host}/mujoco/detections?${params.toString()}`
   }
   const wsBase = baseUrl.replace(/^http/, 'ws')
-  return `${wsBase}/audio/whisper?interval_sec=${STREAM_INTERVAL_SEC}`
+  return `${wsBase}/mujoco/detections?${params.toString()}`
 }
 
-type WhisperTranscriptMessage = {
-  transcript?: string
-  timestamp?: number
-  direction?: string
-  pan?: number
-  distance_m?: number
-  rms?: number
-  source_id?: string
+type DetectionPayload = {
+  detections?: DinoDetection[]
 }
 
-type WhisperAlertMessage = {
-  audio_alert?: boolean
-  keyword?: string
-}
-
-export function useWhisperStream() {
-  const setAudioTranscript = useRobotStatusStore((s) => s.setAudioTranscript)
-  const setAudioAlert = useRobotStatusStore((s) => s.setAudioAlert)
+export function useDinoDetections() {
+  const setDinoDetections = useRobotStatusStore((s) => s.setDinoDetections)
   const reconnectTimerRef = useRef<number | null>(null)
-  const alertTimerRef = useRef<number | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
@@ -43,13 +38,6 @@ export function useWhisperStream() {
       if (reconnectTimerRef.current !== null) {
         window.clearTimeout(reconnectTimerRef.current)
         reconnectTimerRef.current = null
-      }
-    }
-
-    const clearAlertTimer = () => {
-      if (alertTimerRef.current !== null) {
-        window.clearTimeout(alertTimerRef.current)
-        alertTimerRef.current = null
       }
     }
 
@@ -80,35 +68,21 @@ export function useWhisperStream() {
         if (cancelled) return
         clearReconnectTimer()
         if (import.meta.env.DEV) {
-          console.info('[whisper] ws open', wsUrl)
+          console.info('[dino] ws open', wsUrl)
         }
       }
 
       socket.onmessage = (event) => {
         if (cancelled) return
         try {
-          const payload = JSON.parse(event.data) as WhisperTranscriptMessage & WhisperAlertMessage
-
-          if (payload.transcript) {
-            setAudioTranscript({
-              text: payload.transcript,
-              timestamp: payload.timestamp ?? Date.now() / 1000,
-              direction: payload.direction,
-              pan: payload.pan,
-              distanceM: payload.distance_m,
-              rms: payload.rms,
-              sourceId: payload.source_id,
-            })
-          }
-
-          if (payload.audio_alert && payload.keyword) {
-            setAudioAlert({ keyword: payload.keyword, timestamp: Date.now() })
-            clearAlertTimer()
-            alertTimerRef.current = window.setTimeout(() => {
-              setAudioAlert(undefined)
-              alertTimerRef.current = null
-            }, ALERT_TTL_MS)
-          }
+          const payload = JSON.parse(event.data) as DetectionPayload
+          if (!payload.detections) return
+          setDinoDetections({
+            detections: payload.detections,
+            frameWidth: FRAME_WIDTH,
+            frameHeight: FRAME_HEIGHT,
+            updatedAt: Date.now(),
+          })
         } catch {
           // Ignore malformed messages.
         }
@@ -116,7 +90,7 @@ export function useWhisperStream() {
 
       const handleClose = () => {
         if (import.meta.env.DEV) {
-          console.info('[whisper] ws closed')
+          console.info('[dino] ws closed')
         }
         if (socketRef.current === socket) {
           socketRef.current = null
@@ -126,7 +100,7 @@ export function useWhisperStream() {
 
       socket.onerror = () => {
         if (import.meta.env.DEV) {
-          console.info('[whisper] ws error')
+          console.info('[dino] ws error')
         }
         handleClose()
       }
@@ -141,7 +115,6 @@ export function useWhisperStream() {
       cancelled = true
       window.clearTimeout(connectTimer)
       clearReconnectTimer()
-      clearAlertTimer()
 
       const socket = socketRef.current
       socketRef.current = null
@@ -161,5 +134,5 @@ export function useWhisperStream() {
         socket.close()
       }
     }
-  }, [setAudioAlert, setAudioTranscript])
+  }, [setDinoDetections])
 }

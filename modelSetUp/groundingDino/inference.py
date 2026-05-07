@@ -6,6 +6,8 @@ import json
 import os
 import time
 import urllib.request
+import urllib.error
+import importlib.resources as resources
 from typing import Any, Iterable, List
 
 import numpy as np
@@ -15,8 +17,8 @@ _DEFAULT_CONFIG_URL = (
     "groundingdino/config/GroundingDINO_SwinT_OGC.py"
 )
 _DEFAULT_WEIGHTS_URL = (
-    "https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0/"
-    "groundingdino_swint_ogc.pth"
+    "https://huggingface.co/IDEA-Research/grounding-dino-base/resolve/main/"
+    "pytorch_model.bin"
 )
 
 
@@ -51,7 +53,7 @@ class GroundingDinoInferencer:
             weights_path
             or os.getenv("GDINO_WEIGHTS_PATH")
             or self._resolve_file(
-                "groundingdino_swint_ogc.pth", _DEFAULT_WEIGHTS_URL
+                "pytorch_model.bin", _DEFAULT_WEIGHTS_URL
             )
         )
 
@@ -72,12 +74,45 @@ class GroundingDinoInferencer:
         return device
 
     def _resolve_file(self, name: str, url: str) -> Path:
+        if name == "GroundingDINO_SwinT_OGC.py":
+            package_path = self._find_packaged_config(name)
+            if package_path is not None:
+                return package_path
         cache_dir = Path.home() / ".cache" / "groundingdino"
         cache_dir.mkdir(parents=True, exist_ok=True)
         target = cache_dir / name
         if not target.exists():
-            urllib.request.urlretrieve(url, target)  # noqa: S310 - trusted source
+            self._download_file(url, target)
         return target
+
+    @staticmethod
+    def _find_packaged_config(filename: str) -> Path | None:
+        try:
+            config_path = resources.files("groundingdino") / "config" / filename
+        except Exception:
+            return None
+        if config_path.is_file():
+            return Path(config_path)
+        return None
+
+    @staticmethod
+    def _download_file(url: str, target: Path) -> None:
+        token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
+        headers = {"User-Agent": "hexy-groundingdino"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        request = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(request) as response, target.open("wb") as handle:
+                handle.write(response.read())
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403):
+                raise RuntimeError(
+                    "Failed to download Grounding DINO weights (auth required). "
+                    "Set HF_TOKEN/HUGGINGFACE_HUB_TOKEN or GDINO_WEIGHTS_PATH."
+                ) from exc
+            raise
 
     def _load_model(self) -> None:
         import torch

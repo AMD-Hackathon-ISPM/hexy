@@ -6,6 +6,7 @@ import { useViewportStore } from '@/stores/useViewportStore'
 import { SceneStage } from './SceneStage'
 import { PipCameraFrame } from './PipCameraFrame'
 import { CameraTransitionOverlay } from './CameraTransitionOverlay'
+import RobotOverlay from './RobotOverlay'
 
 const DEFAULT_BACKEND_URL = ''
 const DEFAULT_SCENE_FILE = 'rl/models/hexapod_static.xml'
@@ -46,6 +47,8 @@ export function RobotScene({
   const [sceneFile, setSceneFile] = useState<string | null>(null)
   const mainCameraPreset = pipSlot === 'robotPOV' ? 'orbit' : 'robotPOV'
   const renderPip = showPip && !pipCollapsed
+  const showMainRobotOverlay = mainCameraPreset === 'robotPOV'
+  const showPipRobotOverlay = mainCameraPreset !== 'robotPOV'
 
   useEffect(() => {
     const override = import.meta.env.VITE_HEXY_SCENE_FILE
@@ -142,6 +145,7 @@ export function RobotScene({
     >
       <div ref={mainViewRef} className="hexy-scene">
         <CameraTransitionOverlay variant="main" />
+        <RobotOverlay variant="main" visible={showMainRobotOverlay} />
       </div>
       <Canvas
         className="hexy-canvas-root"
@@ -181,7 +185,9 @@ export function RobotScene({
         </MujocoPhysics>
       </Canvas>
       {showPip && (
-        <PipCameraFrame ref={pipViewRef} collapsed={pipCollapsed} hasCanvas={renderPip} />
+        <PipCameraFrame ref={pipViewRef} collapsed={pipCollapsed} hasCanvas={renderPip}>
+          {showPipRobotOverlay && <RobotOverlay variant="pip" />}
+        </PipCameraFrame>
       )}
     </MujocoProvider>
   )

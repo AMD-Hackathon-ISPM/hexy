@@ -32,11 +32,27 @@ export type AudioTranscript = {
   timestamp: number
   direction?: string
   pan?: number
+  distanceM?: number
+  rms?: number
+  sourceId?: string
 }
 
 export type AudioAlert = {
   keyword: string
   timestamp: number
+}
+
+export type DinoDetection = {
+  label: string
+  confidence: number
+  bbox: [number, number, number, number]
+}
+
+export type DinoDetections = {
+  detections: DinoDetection[]
+  frameWidth: number
+  frameHeight: number
+  updatedAt: number
 }
 
 type RobotStatusState = {
@@ -46,6 +62,7 @@ type RobotStatusState = {
   mujocoState?: MujocoState
   audioTranscript?: AudioTranscript
   audioAlert?: AudioAlert
+  dinoDetections?: DinoDetections
   setTasks: (tasks: Task[]) => void
   setStatus: (patch: Partial<RobotStatus>) => void
   setReasoningSteps: (steps: ReasoningStep[]) => void
@@ -53,6 +70,7 @@ type RobotStatusState = {
   setMujocoStreamState: (state: MujocoState) => void
   setAudioTranscript: (transcript: AudioTranscript) => void
   setAudioAlert: (alert?: AudioAlert) => void
+  setDinoDetections: (detections: DinoDetections) => void
 }
 
 const demoTasks: Task[] = [
@@ -98,6 +116,7 @@ export const useRobotStatusStore = create<RobotStatusState>((set) => ({
   mujocoState: undefined,
   audioTranscript: undefined,
   audioAlert: undefined,
+  dinoDetections: undefined,
   setTasks: (tasks) => set({ tasks }),
   setStatus: (patch) =>
     set((state) => ({ status: { ...state.status, ...patch } })),
@@ -116,4 +135,5 @@ export const useRobotStatusStore = create<RobotStatusState>((set) => ({
     })),
   setAudioTranscript: (audioTranscript) => set({ audioTranscript }),
   setAudioAlert: (audioAlert) => set({ audioAlert }),
+  setDinoDetections: (dinoDetections) => set({ dinoDetections }),
 }))

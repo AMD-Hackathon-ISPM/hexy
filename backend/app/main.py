@@ -4,6 +4,7 @@ from pathlib import Path
 import asyncio
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -63,6 +64,7 @@ _simulator: MujocoSimulator | None = None
 _simulator_error: Exception | None = None
 _dino_service: GroundingDinoService | None = None
 _dino_error: Exception | None = None
+_render_executor = ThreadPoolExecutor(max_workers=1)
 
 
 def _get_simulator() -> MujocoSimulator:
@@ -270,11 +272,13 @@ async def mujoco_detections(websocket: WebSocket) -> None:
 
     try:
         while True:
-            frame = await asyncio.to_thread(
+            loop = asyncio.get_running_loop()
+            frame = await loop.run_in_executor(
+                _render_executor,
                 simulator.render_rgb,
-                width=width,
-                height=height,
-                camera_name=camera_name,
+                width,
+                height,
+                camera_name,
             )
             detections = await asyncio.to_thread(
                 dino_service.detect, frame, detection_config

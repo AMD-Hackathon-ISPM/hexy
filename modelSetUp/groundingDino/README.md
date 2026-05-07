@@ -46,6 +46,7 @@ The demo runs the test prompts:
 - GDINO_WEIGHTS_PATH: path to model weights
 - GDINO_BOX_THRESHOLD: default 0.35
 - GDINO_TEXT_THRESHOLD: default 0.25
+- HF_TOKEN / HUGGINGFACE_HUB_TOKEN: optional auth for weights download
 
 ## 5) MuJoCo frames
 

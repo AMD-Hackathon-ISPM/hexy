@@ -20,6 +20,9 @@ class TranscriptChunk:
     timestamp: float
     direction: str
     pan: float
+    distance_m: float
+    rms: float
+    source_id: str
 
 
 class TranscriptMemory:
@@ -97,18 +100,37 @@ class SyntheticAudioSource:
         self._cache: dict[str, np.ndarray] = {}
         self._cache_lock = threading.Lock()
         self._tts_lock = threading.Lock()
+        self._source_ids = [
+            "humanoid-1",
+            "humanoid-2",
+            "humanoid-3",
+            "humanoid-4",
+        ]
 
-    def generate_phrase(self) -> tuple[np.ndarray, float]:
+    def generate_phrase(self) -> tuple[np.ndarray, float, float, str, float]:
         phrase = random.choice(self._phrases)
         mono = self._get_or_synthesize(phrase)
 
         pan = random.uniform(-1.0, 1.0)
+        distance_m = random.uniform(
+            float(os.getenv("WHISPER_MIN_DISTANCE_M", "2.0")),
+            float(os.getenv("WHISPER_MAX_DISTANCE_M", "18.0")),
+        )
+        source_id = random.choice(self._source_ids)
+
+        # Inverse-distance style attenuation with a soft floor to prevent silence.
+        ref_dist = float(os.getenv("WHISPER_DISTANCE_REF_M", "2.0"))
+        rolloff = float(os.getenv("WHISPER_DISTANCE_ROLLOFF", "1.0"))
+        attenuation = (ref_dist / max(distance_m, 0.5)) ** rolloff
+        attenuation = max(0.05, min(1.0, attenuation))
+        mono = mono * attenuation
         left = mono * (1.0 - max(0.0, pan))
         right = mono * (1.0 + min(0.0, pan))
         stereo = np.stack([left, right], axis=1)
         mono_mix = stereo.mean(axis=1)
 
-        return mono_mix.astype(np.float32), pan
+        rms = float(np.sqrt(np.mean(np.square(mono_mix))))
+        return mono_mix.astype(np.float32), pan, distance_m, source_id, rms
 
     def _get_or_synthesize(self, phrase: str) -> np.ndarray:
         with self._cache_lock:
@@ -197,9 +219,17 @@ async def stream_transcriptions(
             max_delay = max(min_delay + 0.1, interval_sec * 1.6)
         return random.uniform(min_delay, max_delay)
 
+    rms_threshold = float(os.getenv("WHISPER_AUDIO_RMS_THRESHOLD", "0.03"))
+    rms_max = float(os.getenv("WHISPER_AUDIO_RMS_MAX", "0.7"))
+
     while True:
         if random.random() <= emit_prob:
-            audio, pan = await asyncio.to_thread(source.generate_phrase)
+            audio, pan, distance_m, source_id, rms = await asyncio.to_thread(
+                source.generate_phrase
+            )
+            if rms < rms_threshold or rms > rms_max:
+                await asyncio.sleep(get_delay())
+                continue
             transcript = await asyncio.to_thread(whisper_model.transcribe, audio)
             timestamp = time.time()
             direction = estimate_direction(pan)
@@ -210,6 +240,9 @@ async def stream_transcriptions(
                     timestamp=timestamp,
                     direction=direction,
                     pan=pan,
+                    distance_m=distance_m,
+                    rms=rms,
+                    source_id=source_id,
                 )
                 memory.add(chunk)
                 await send_json(
@@ -218,6 +251,9 @@ async def stream_transcriptions(
                         "timestamp": timestamp,
                         "direction": direction,
                         "pan": round(pan, 2),
+                        "distance_m": round(distance_m, 2),
+                        "rms": round(rms, 4),
+                        "source_id": source_id,
                     }
                 )
 

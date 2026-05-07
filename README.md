@@ -28,6 +28,18 @@ so there is no CORS configuration to manage.
 The backend is also reachable directly at http://localhost:8000 for manual API
 checks during development.
 
+### What scene loads?
+
+The backend auto-detects `cave-gen/cave_env/cave_hexapod.xml` at startup:
+
+- **File present** → cave scene loads (~10–15 s compile in the browser).
+- **File missing** → falls back to the static hexapod scene (instant).
+
+So if cave assets are already on disk (the usual case after a one-time
+generation), `docker compose up --build` is all you need — **no regeneration
+required**. The 30–60 min `cave-gen` job below is only for the very first
+generation or when you want a brand-new procedural cave.
+
 ## Optional: training
 
 The simulation/training service does not start by default — it is gated behind a
@@ -40,6 +52,43 @@ docker compose --profile training run --rm learning python scripts/test_mujoco_c
 # GPU (NVIDIA Container Toolkit required)
 docker compose --profile training-gpu run --rm learning-gpu python scripts/test_mujoco_control.py
 ```
+
+## Optional: cave environment
+
+`cave-gen` procedurally generates a cave scene with the real hexapod spliced
+in, plus a 1000-episode synthetic survivor dataset. It runs as a one-shot job
+under a compose profile, so the default `up` is unaffected.
+
+There are three speeds, pick the slowest one you actually need:
+
+```bash
+# 1. FASTEST (~seconds): use whatever cave assets are already on disk.
+#    No cave-gen run at all — the backend reads cave-gen/cave_env/cave_hexapod.xml
+#    directly. This is the normal day-to-day workflow.
+docker compose up --build
+
+# 2. FAST RE-MERGE (~seconds): re-stitch the hexapod into the existing cave
+#    after editing cave_maze.xml or the hexapod model. Skips the slow mesh gen.
+docker compose --profile data-gen run --rm --entrypoint python cave-gen build_cave_hexapod.py
+docker compose restart backend
+
+# 3. FULL REGEN (~30-60 min on CPU): rebuild the cave meshes from scratch
+#    and regenerate the synthetic dataset. Only needed for the first ever
+#    generation or when you want a brand-new procedural layout.
+docker compose --profile data-gen run --rm cave-gen
+docker compose restart backend
+```
+
+To revert to the static hexapod scene:
+
+```bash
+rm cave-gen/cave_env/cave_hexapod.xml
+docker compose restart backend
+```
+
+The generated `cave_hexapod.xml` is intended for the Docker-backed app. For
+local host viewing with `mujoco.viewer`, temporarily symlink `learning/STLFILES`
+to `rl/STLFILES` so the browser-friendly `../rl/STLFILES/*` mesh paths resolve.
 
 ## Local development (without Docker)
 

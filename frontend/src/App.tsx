@@ -14,6 +14,7 @@ function App() {
   useMujocoStream()
   const [hexyReady, setHexyReady] = useState(false)
   const [hexyError, setHexyError] = useState<string | null>(null)
+  const [hexyLoadDetail, setHexyLoadDetail] = useState<string | null>(null)
   const [showLoadingOverlay, setShowLoadingOverlay] = useState(true)
   const [loadingOverlayExiting, setLoadingOverlayExiting] = useState(false)
 
@@ -44,6 +45,7 @@ function App() {
       >
         <RobotScene
           onLoadError={setHexyError}
+          onLoadDetail={setHexyLoadDetail}
           onMainReady={() => {
             setHexyError(null)
             setHexyReady(true)
@@ -61,6 +63,7 @@ function App() {
       {showLoadingOverlay && (
         <MujocoLoadingOverlay
           error={hexyError}
+          detailOverride={hexyLoadDetail}
           ready={hexyReady}
           exiting={loadingOverlayExiting}
         />

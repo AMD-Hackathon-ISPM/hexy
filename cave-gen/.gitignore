@@ -1,0 +1,8 @@
+cave_env/meshes/
+cave_env/cave_maze.xml
+cave_env/cave_episode.xml
+cave_env/cave_hexapod.xml
+dataset/
+__pycache__/
+*.pyc
+.DS_Store

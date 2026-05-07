@@ -6,12 +6,13 @@ services:
     container_name: hexy-backend
     environment:
       RL_ROOT: /vendor_rl
-      MODEL_PATH: /vendor_rl/models/hexapod_static.xml
+      CAVE_ROOT: /cave_assets
       CORS_ORIGINS: "*"
       MUJOCO_GL: egl
       PYOPENGL_PLATFORM: egl
     volumes:
       - ./learning:/vendor_rl:ro
+      - ./cave-gen/cave_env:/cave_assets:ro
     ports:
       - "${HEXY_API_PORT:-8000}:8000"
     healthcheck:
@@ -74,3 +75,25 @@ services:
     tty: true
     stdin_open: true
     command: bash
+
+  cave-gen:
+    build:
+      context: ./cave-gen
+    image: hexy-cave-gen:latest
+    profiles: ["data-gen"]
+    environment:
+      MUJOCO_GL: egl
+      PYOPENGL_PLATFORM: egl
+      CAVE_OUTPUT_DIR: /cave_env
+      CAVE_MESH_DIR: /cave_env/meshes
+      CAVE_DATASET_DIR: /dataset
+      HEXAPOD_MODEL_PATH: /vendor_rl/models/hexapod_static.xml
+    volumes:
+      - ./cave-gen/cave_env:/cave_env
+      - ./learning:/vendor_rl:ro
+      - ./learning:/rl:ro
+      - cave_dataset:/dataset
+    tty: true
+
+volumes:
+  cave_dataset:

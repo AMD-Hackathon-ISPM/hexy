@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { findBodyByName, useMujoco } from 'mujoco-react'
 import type { MujocoState } from '@/lib/backendClient'
-import type { CameraPreset } from '@/stores/useViewportStore'
+import type { CameraPreset, ViewMode } from '@/stores/useViewportStore'
 import { useRobotStatusStore } from '@/stores/useRobotStatusStore'
 import * as THREE from 'three'
 
@@ -39,6 +39,7 @@ type SceneStageProps = {
   mainCameraPreset: CameraPreset
   pipCameraPreset: CameraPreset
   showPip: boolean
+  viewMode: ViewMode
 }
 
 type ViewportBounds = {
@@ -330,18 +331,25 @@ function useRefViewportRect<T extends Element>(ref: RefObject<T | null>) {
 function OrbitCameraControls({
   camera,
   enabled,
+  freecam,
 }: {
   camera: THREE.PerspectiveCamera
   enabled: boolean
+  freecam: boolean
 }) {
   const gl = useThree((state) => state.gl)
 
   return (
     <OrbitControls
+      key={freecam ? 'freecam' : 'orbital'}
       camera={camera}
       domElement={gl.domElement}
-      target={ORBIT_TARGET}
+      target={freecam ? undefined : ORBIT_TARGET}
       enableDamping
+      enablePan={freecam}
+      screenSpacePanning={freecam}
+      panSpeed={1.4}
+      maxDistance={freecam ? 250 : 100}
       enabled={enabled}
     />
   )
@@ -418,6 +426,7 @@ export function SceneStage({
   mainCameraPreset,
   pipCameraPreset,
   showPip,
+  viewMode,
 }: SceneStageProps) {
   const orbitCamera = useMemo(() => createSceneCamera('orbit'), [])
   const robotCamera = useMemo(() => createSceneCamera('robotPOV'), [])
@@ -425,10 +434,11 @@ export function SceneStage({
   const robotPovForward = useMemo(() => new THREE.Vector3(0.9, 0.9, -0.45), [])
 
   useEffect(() => {
+    if (viewMode === 'freecam') return
     if (mainCameraPreset === 'orbit' || pipCameraPreset === 'orbit') {
       resetSceneCamera(orbitCamera, 'orbit')
     }
-  }, [mainCameraPreset, orbitCamera, pipCameraPreset])
+  }, [mainCameraPreset, orbitCamera, pipCameraPreset, viewMode])
 
   return (
     <>
@@ -440,6 +450,7 @@ export function SceneStage({
       <OrbitCameraControls
         camera={orbitCamera}
         enabled={mainCameraPreset === 'orbit'}
+        freecam={viewMode === 'freecam'}
       />
       <RobotPovCamera
         camera={robotCamera}

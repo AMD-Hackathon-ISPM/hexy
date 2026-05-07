@@ -3,7 +3,6 @@ type HexapodLoaderProps = {
   label?: string
   detail?: string | null
   hint?: string | null
-  showProgress?: boolean
   ready?: boolean
 }
 
@@ -28,7 +27,6 @@ export function HexapodLoader({
   label = 'Loading Hexy',
   detail = null,
   hint = null,
-  showProgress = false,
   ready = false,
 }: HexapodLoaderProps) {
   return (
@@ -104,11 +102,6 @@ export function HexapodLoader({
       </svg>
       <span className="hexy-loader-label">{label}</span>
       {detail && <span className="hexy-loader-detail">{detail}</span>}
-      {showProgress && (
-        <div className="hexy-loader-progress" aria-hidden="true">
-          <span className="hexy-loader-progress-bar" />
-        </div>
-      )}
       {hint && <span className="hexy-loader-hint">{hint}</span>}
     </div>
   )

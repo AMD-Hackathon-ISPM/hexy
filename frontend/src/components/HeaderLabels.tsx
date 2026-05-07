@@ -20,6 +20,7 @@ export function HeaderLabels() {
     <>
       <div className="hexy-header hexy-header-left">HEXY</div>
       <div className="hexy-header hexy-header-right">
+        <div className="hexy-header-label">{mainViewLabel}</div>
         <div className="hexy-view-mode-toggle" role="group" aria-label="Camera mode">
           {VIEW_MODE_OPTIONS.map((option) => (
             <button
@@ -33,7 +34,6 @@ export function HeaderLabels() {
             </button>
           ))}
         </div>
-        <div className="hexy-header-label">{mainViewLabel}</div>
       </div>
     </>
   )

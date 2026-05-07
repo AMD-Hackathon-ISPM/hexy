@@ -79,7 +79,6 @@ export function MujocoLoadingOverlay({
           ? "Taking longer than usual. Open DevTools (F12) → Console for errors."
           : null
       }
-      showProgress={!error}
       ready={ready}
     />
   );

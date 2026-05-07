@@ -12,7 +12,6 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   MessageCircleIcon,
-  XIcon,
 } from "lucide-react";
 
 export function FloatingAssistantChat() {
@@ -35,7 +34,7 @@ export function FloatingAssistantChat() {
           data-has-attachments={hasComposerAttachments}
           data-visible={visible}
           className={cn(
-            "hexy-chat-panel pointer-events-auto relative w-[min(720px,calc(100vw-32px))] transition-[max-height,min-height,height,transform,opacity] duration-300 ease-out",
+            "hexy-chat-panel pointer-events-auto relative w-[min(720px,calc(100vw-32px))]",
             !showHeader
               ? hasComposerAttachments
                 ? "h-[112px]"
@@ -43,8 +42,8 @@ export function FloatingAssistantChat() {
               : isExpanded
                 ? "h-[min(560px,calc(100vh-32px))]"
                 : hasComposerAttachments
-                  ? "h-[148px]"
-                  : "h-[100px]",
+                  ? "h-[142px]"
+                  : "h-[90px]",
           )}
         >
           <TooltipProvider>
@@ -56,7 +55,7 @@ export function FloatingAssistantChat() {
                   onClick={() => setVisible(false)}
                   aria-label="Close chat"
                 >
-                  <XIcon />
+                  <ChevronDownIcon />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="left">Hide chat</TooltipContent>

@@ -319,7 +319,7 @@ const Composer: FC = () => {
             <ComposerAddAttachment />
             <ComposerPrimitive.Input
               placeholder="Send a command to Hexy"
-              className="aui-composer-input max-h-32 min-h-10 flex-1 resize-none bg-transparent px-1.75 py-1 text-sm outline-none placeholder:text-muted-foreground/80"
+              className="aui-composer-input max-h-[50px] min-h-10 flex-1 resize-none overflow-y-auto bg-transparent px-1.75 py-1 text-sm outline-none placeholder:text-muted-foreground/80 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
               rows={1}
               aria-label="Message input"
             />

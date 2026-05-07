@@ -974,44 +974,56 @@ body {
 
 .hexy-chat-close-btn {
   position: absolute;
-  top: -6px;
-  right: -14px;
+  bottom: 12px;
+  right: -16px;
   z-index: 40;
   width: 32px;
   height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
-  background: rgba(26, 26, 26, 0.85);
+  border-radius: 999px;
+  background: rgba(26, 26, 26, 0.78);
   border: 1px solid var(--hexy-chat-tray-border);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
   cursor: pointer;
-  color: rgba(255, 255, 255, 0.65);
+  color: rgba(255, 255, 255, 0.7);
   padding: 0;
+  outline: none;
   transition:
     color 150ms ease,
     background 150ms ease,
+    border-color 150ms ease,
     transform 150ms ease,
-    box-shadow 150ms ease;
+    box-shadow 150ms ease,
+    opacity 200ms ease;
 }
 
 .hexy-chat-close-btn:hover {
   color: #fff;
-  background: rgba(56, 56, 56, 0.95);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
-  transform: scale(1.05);
+  background: rgba(56, 56, 56, 0.92);
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  transform: scale(1.06);
+}
+
+.hexy-chat-close-btn:active {
+  transform: scale(0.96);
+}
+
+.hexy-chat-close-btn:focus-visible {
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.18),
+    0 6px 18px rgba(0, 0, 0, 0.45);
 }
 
 .hexy-chat-close-btn svg {
-  width: 16px;
-  height: 16px;
-  stroke-width: 2.2;
-}
-
-.hexy-chat-panel[data-empty="true"] .hexy-chat-close-btn {
-  top: 18px;
-  right: -14px;
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.4;
 }
 
 .hexy-chat-fab {

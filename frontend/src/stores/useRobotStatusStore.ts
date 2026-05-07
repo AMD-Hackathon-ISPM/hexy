@@ -27,16 +27,32 @@ export type RobotStatus = {
   contacts?: number
 }
 
+export type AudioTranscript = {
+  text: string
+  timestamp: number
+  direction?: string
+  pan?: number
+}
+
+export type AudioAlert = {
+  keyword: string
+  timestamp: number
+}
+
 type RobotStatusState = {
   tasks: Task[]
   status: RobotStatus
   reasoningSteps: ReasoningStep[]
   mujocoState?: MujocoState
+  audioTranscript?: AudioTranscript
+  audioAlert?: AudioAlert
   setTasks: (tasks: Task[]) => void
   setStatus: (patch: Partial<RobotStatus>) => void
   setReasoningSteps: (steps: ReasoningStep[]) => void
   setMujocoState: (state: MujocoState) => void
   setMujocoStreamState: (state: MujocoState) => void
+  setAudioTranscript: (transcript: AudioTranscript) => void
+  setAudioAlert: (alert?: AudioAlert) => void
 }
 
 const demoTasks: Task[] = [
@@ -80,6 +96,8 @@ export const useRobotStatusStore = create<RobotStatusState>((set) => ({
   status: demoStatus,
   reasoningSteps: demoReasoningSteps,
   mujocoState: undefined,
+  audioTranscript: undefined,
+  audioAlert: undefined,
   setTasks: (tasks) => set({ tasks }),
   setStatus: (patch) =>
     set((state) => ({ status: { ...state.status, ...patch } })),
@@ -96,4 +114,6 @@ export const useRobotStatusStore = create<RobotStatusState>((set) => ({
         mode: 'MuJoCo Stream',
       },
     })),
+  setAudioTranscript: (audioTranscript) => set({ audioTranscript }),
+  setAudioAlert: (audioAlert) => set({ audioAlert }),
 }))

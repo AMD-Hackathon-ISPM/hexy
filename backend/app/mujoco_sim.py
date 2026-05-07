@@ -32,6 +32,9 @@ class MujocoSimulator:
     def __init__(self, model_path: Path) -> None:
         self._model_path = model_path
         self._lock = threading.Lock()
+        self._renderer = None
+        self._render_width = 0
+        self._render_height = 0
 
         self.model = mujoco.MjModel.from_xml_path(str(model_path))
         self.data = mujoco.MjData(self.model)
@@ -76,3 +79,38 @@ class MujocoSimulator:
             njnt=int(self.model.njnt),
             updated_at=time.time(),
         )
+
+    def render_rgb(
+        self,
+        width: int = 640,
+        height: int = 480,
+        camera_name: str | None = None,
+    ) -> np.ndarray:
+        width = max(64, int(width))
+        height = max(64, int(height))
+
+        with self._lock:
+            if (
+                self._renderer is None
+                or self._render_width != width
+                or self._render_height != height
+            ):
+                self._renderer = mujoco.Renderer(self.model, height=height, width=width)
+                self._render_width = width
+                self._render_height = height
+
+            camera_id = None
+            if camera_name:
+                candidate = mujoco.mj_name2id(
+                    self.model, mujoco.mjtObj.mjOBJ_CAMERA, camera_name
+                )
+                if candidate >= 0:
+                    camera_id = candidate
+
+            if camera_id is None:
+                self._renderer.update_scene(self.data)
+            else:
+                self._renderer.update_scene(self.data, camera=camera_id)
+
+            frame = self._renderer.render()
+            return frame.copy()

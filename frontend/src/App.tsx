@@ -5,6 +5,7 @@ import { HeaderLabels } from './components/HeaderLabels'
 import { FloatingInfoPanel } from './components/FloatingInfoPanel'
 import { MujocoLoadingOverlay } from './components/MujocoLoadingOverlay'
 import { useMujocoStream } from './hooks/useMujocoStream'
+import { useWhisperStream } from './hooks/useWhisperStream'
 
 const RobotScene = lazy(() => import('./components/RobotScene'))
 const LOADER_READY_PAUSE_MS = 5000
@@ -12,6 +13,7 @@ const LOADER_FADE_MS = 320
 
 function App() {
   useMujocoStream()
+  useWhisperStream()
   const [hexyReady, setHexyReady] = useState(false)
   const [hexyError, setHexyError] = useState<string | null>(null)
   const [hexyLoadDetail, setHexyLoadDetail] = useState<string | null>(null)

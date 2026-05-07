@@ -1316,6 +1316,57 @@ body {
   pointer-events: none;
 }
 
+.hexy-audio-alert {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(255, 77, 77, 0.18);
+  border: 1px solid rgba(255, 96, 96, 0.5);
+  color: #fff;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  z-index: 3;
+  box-shadow: 0 0 12px rgba(255, 80, 80, 0.4);
+}
+
+.hexy-audio-alert-label {
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.hexy-audio-alert-keyword {
+  font-weight: 700;
+  color: #fff;
+}
+
+.hexy-audio-alert-direction {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 10px;
+}
+
+.hexy-audio-transcript {
+  position: absolute;
+  left: 10px;
+  bottom: 40px;
+  max-width: 240px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(12, 12, 12, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  line-height: 1.2;
+  z-index: 2;
+}
+
 .hexy-pip[data-has-canvas="true"] .hexy-pip-label {
   display: none;
 }

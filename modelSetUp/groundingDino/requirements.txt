@@ -1,0 +1,4 @@
+groundingdino
+numpy
+Pillow
+torchvision

@@ -10,7 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .grounding_dino_service import GroundingDinoService
 from .mujoco_sim import MujocoSimulator, MujocoState
+from .whisper_stream import stream_transcriptions
 
 
 class ErrorResponse(BaseModel):
@@ -59,6 +61,8 @@ def _resolve_cave_root() -> Path:
 
 _simulator: MujocoSimulator | None = None
 _simulator_error: Exception | None = None
+_dino_service: GroundingDinoService | None = None
+_dino_error: Exception | None = None
 
 
 def _get_simulator() -> MujocoSimulator:
@@ -107,6 +111,21 @@ def _get_simulator() -> MujocoSimulator:
         _simulator_error = exc
         raise
     return _simulator
+
+
+def _get_dino_service() -> GroundingDinoService:
+    global _dino_service, _dino_error
+    if _dino_service is not None:
+        return _dino_service
+    if _dino_error is not None:
+        raise _dino_error
+
+    try:
+        _dino_service = GroundingDinoService()
+    except Exception as exc:  # pragma: no cover - runtime dependency
+        _dino_error = exc
+        raise
+    return _dino_service
 
 
 app = FastAPI(title="Hexy Backend", version="0.1.0")
@@ -201,6 +220,100 @@ async def mujoco_stream(websocket: WebSocket) -> None:
         return
     except Exception as exc:
         logger.exception("mujoco stream crashed: %s", exc)
+        try:
+            await websocket.close(code=1011, reason=str(exc)[:120])
+        except Exception:
+            pass
+
+
+@app.websocket("/mujoco/detections")
+async def mujoco_detections(websocket: WebSocket) -> None:
+    await websocket.accept()
+
+    raw_interval = websocket.query_params.get("interval_ms", "100")
+    raw_width = websocket.query_params.get("width", "640")
+    raw_height = websocket.query_params.get("height", "480")
+    prompt = websocket.query_params.get("prompt")
+    camera_name = websocket.query_params.get("camera") or os.getenv(
+        "GDINO_CAMERA_DEFAULT"
+    )
+
+    try:
+        interval_ms = int(raw_interval)
+        width = int(raw_width)
+        height = int(raw_height)
+    except ValueError:
+        await websocket.send_json({"detail": "interval_ms/width/height must be integers"})
+        await websocket.close(code=1003)
+        return
+
+    interval_ms = max(50, min(interval_ms, 2000))
+    width = max(160, min(width, 1920))
+    height = max(120, min(height, 1080))
+    logger.info(
+        "mujoco detections accepted interval_ms=%s width=%s height=%s",
+        interval_ms,
+        width,
+        height,
+    )
+
+    try:
+        simulator = _get_simulator()
+        dino_service = _get_dino_service()
+    except Exception as exc:
+        logger.exception("mujoco detections init failed")
+        await websocket.send_json({"detail": str(exc)})
+        await websocket.close(code=1011, reason=str(exc)[:120])
+        return
+
+    detection_config = dino_service.build_config(prompt)
+
+    try:
+        while True:
+            frame = await asyncio.to_thread(
+                simulator.render_rgb,
+                width=width,
+                height=height,
+                camera_name=camera_name,
+            )
+            detections = await asyncio.to_thread(
+                dino_service.detect, frame, detection_config
+            )
+            await websocket.send_json({"detections": detections})
+            await asyncio.sleep(interval_ms / 1000)
+    except WebSocketDisconnect as exc:
+        logger.info("mujoco detections disconnected code=%s", getattr(exc, "code", None))
+        return
+    except Exception as exc:
+        logger.exception("mujoco detections crashed: %s", exc)
+        try:
+            await websocket.close(code=1011, reason=str(exc)[:120])
+        except Exception:
+            pass
+
+
+@app.websocket("/audio/whisper")
+async def audio_whisper(websocket: WebSocket) -> None:
+    await websocket.accept()
+
+    raw_interval = websocket.query_params.get("interval_sec", "3")
+    try:
+        interval_sec = float(raw_interval)
+    except ValueError:
+        await websocket.send_json({"detail": "interval_sec must be a number"})
+        await websocket.close(code=1003)
+        return
+
+    interval_sec = max(1.0, min(interval_sec, 10.0))
+    logger.info("audio whisper accepted interval_sec=%s", interval_sec)
+
+    try:
+        await stream_transcriptions(websocket.send_json, interval_sec=interval_sec)
+    except WebSocketDisconnect as exc:
+        logger.info("audio whisper disconnected code=%s", getattr(exc, "code", None))
+        return
+    except Exception as exc:
+        logger.exception("audio whisper crashed: %s", exc)
         try:
             await websocket.close(code=1011, reason=str(exc)[:120])
         except Exception:

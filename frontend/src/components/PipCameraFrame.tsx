@@ -1,5 +1,6 @@
 import { forwardRef, type ReactNode } from 'react'
 import { useViewportStore } from '@/stores/useViewportStore'
+import { useRobotStatusStore } from '@/stores/useRobotStatusStore'
 import {
   ArrowRightLeftIcon,
   Minimize2Icon,
@@ -18,6 +19,8 @@ function PipCameraFrame({ children, collapsed = false, hasCanvas: hasCanvasProp 
   const swap = useViewportStore((s) => s.swap)
   const setPipCollapsed = useViewportStore((s) => s.setPipCollapsed)
   const transitionPhase = useViewportStore((s) => s.transitionPhase)
+  const audioAlert = useRobotStatusStore((s) => s.audioAlert)
+  const audioTranscript = useRobotStatusStore((s) => s.audioTranscript)
   const hasCanvas = hasCanvasProp ?? Boolean(children)
   const isTransitioning = transitionPhase !== 'idle'
 
@@ -44,6 +47,22 @@ function PipCameraFrame({ children, collapsed = false, hasCanvas: hasCanvasProp 
         {children}
         <CameraTransitionOverlay variant="pip" />
       </div>
+      {audioAlert && (
+        <div className="hexy-audio-alert">
+          <span className="hexy-audio-alert-label">AUDIO ALERT</span>
+          <span className="hexy-audio-alert-keyword">{audioAlert.keyword}</span>
+          {audioTranscript?.direction && (
+            <span className="hexy-audio-alert-direction">
+              {audioTranscript.direction.toUpperCase()}
+            </span>
+          )}
+        </div>
+      )}
+      {audioTranscript?.text && (
+        <div className="hexy-audio-transcript">
+          “{audioTranscript.text}”
+        </div>
+      )}
       <button
         type="button"
         className="hexy-pip-expand"

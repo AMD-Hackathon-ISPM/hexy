@@ -10,6 +10,16 @@ services:
       CORS_ORIGINS: "*"
       MUJOCO_GL: egl
       PYOPENGL_PLATFORM: egl
+      GDINO_DEVICE: auto
+      GDINO_PROMPT_DEFAULT: person
+      GDINO_CAMERA_DEFAULT: robot_pov
+      GDINO_BOX_THRESHOLD: "0.35"
+      GDINO_TEXT_THRESHOLD: "0.25"
+      WHISPER_MODEL: base
+      WHISPER_DEVICE: auto
+      WHISPER_EMIT_PROB: "0.75"
+      WHISPER_MIN_INTERVAL_SEC: "2.0"
+      WHISPER_MAX_INTERVAL_SEC: "6.0"
     volumes:
       - ./learning:/vendor_rl:ro
       - ./cave-gen/cave_env:/cave_assets:ro

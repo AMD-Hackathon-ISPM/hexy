@@ -517,7 +517,12 @@ def dino_debug_frame(
                 camera,
                 resolved_camera,
             )
-        frame = simulator.render_rgb_with_camera_id(width, height, camera_id)
+        frame = _render_executor.submit(
+            simulator.render_rgb_with_camera_id,
+            width,
+            height,
+            camera_id,
+        ).result()
         from PIL import Image
 
         buf = BytesIO()

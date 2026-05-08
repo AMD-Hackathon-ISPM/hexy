@@ -88,7 +88,7 @@ def ensure_robot_pov_camera(hexapod_body: ET.Element) -> None:
             {
                 "name": "robot_pov",
                 "mode": "fixed",
-                "pos": "0 0 0.24",
+                "pos": "0 0 0.65",
                 "xyaxes": "0.7071 -0.7071 0 0.2357 0.2357 0.9428",
             },
         ),

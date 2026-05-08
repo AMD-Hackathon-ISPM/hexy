@@ -11,6 +11,7 @@ import RobotOverlay from './RobotOverlay'
 const DEFAULT_BACKEND_URL = ''
 const DEFAULT_SCENE_FILE = 'rl/models/hexapod_static.xml'
 const CAVE_SCENE_FILE = 'cave/cave_hexapod.xml'
+const CAVE_PREFLIGHT_TIMEOUT_MS = 6000
 const CAVE_LOAD_TIMEOUT_MS = 20000
 const CAVE_DISABLED_SESSION_KEY = 'hexy:cave-browser-disabled'
 
@@ -22,6 +23,24 @@ function buildHexyConfig(baseUrl: string, sceneFile: string): SceneConfig {
   return {
     src: `${normalizedBase}/assets/`,
     sceneFile,
+  }
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
+async function fetchCaveScene(url: string) {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), CAVE_PREFLIGHT_TIMEOUT_MS)
+
+  try {
+    return await fetch(url, {
+      cache: 'force-cache',
+      signal: controller.signal,
+    })
+  } finally {
+    window.clearTimeout(timeout)
   }
 }
 
@@ -71,10 +90,7 @@ export function RobotScene({
       : baseUrl
     let cancelled = false
 
-    fetch(`${normalizedBase}/assets/cave/cave_hexapod.xml`, {
-      method: 'HEAD',
-      cache: 'no-store',
-    })
+    fetchCaveScene(`${normalizedBase}/assets/cave/cave_hexapod.xml`)
       .then((response) => {
         if (!cancelled) {
           const hasCaveScene = response.ok || response.status === 304
@@ -89,9 +105,13 @@ export function RobotScene({
           setSceneFile(hasCaveScene ? CAVE_SCENE_FILE : DEFAULT_SCENE_FILE)
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!cancelled) {
-          onLoadDetail?.('Cave scene check failed; loading static hexapod')
+          onLoadDetail?.(
+            isAbortError(error)
+              ? 'Cave scene check timed out; loading static hexapod'
+              : 'Cave scene check failed; loading static hexapod',
+          )
           setSceneFile(DEFAULT_SCENE_FILE)
         }
       })

@@ -701,8 +701,14 @@ body {
   line-height: 1;
 }
 
-.hexy-view-mode-toggle {
+.hexy-camera-controls {
   pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hexy-view-mode-toggle {
   display: inline-flex;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 6px;
@@ -737,6 +743,31 @@ body {
 .hexy-view-mode-option:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.6);
   outline-offset: -2px;
+}
+
+.hexy-camera-reset {
+  width: 31px;
+  height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.hexy-camera-reset:hover {
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.hexy-camera-reset:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
 }
 
 /* ===== HUD: floating info panel (left) ===== */
@@ -1554,15 +1585,18 @@ body {
 }
 
 .hexy-loader-body {
-  animation: hexy-loader-bob 0.6s ease-in-out infinite alternate;
+  transform-box: view-box;
+  transform-origin: 100px 80px;
+  animation: hexy-loader-bob 0.7s ease-in-out infinite alternate;
 }
 
 .hexy-loader-leg {
-  animation: hexy-loader-stride 1.2s ease-in-out infinite alternate;
+  transform-box: view-box;
+  animation: hexy-loader-stride-a 0.75s ease-in-out infinite;
 }
 
 .hexy-loader-leg-b {
-  animation-delay: -0.6s;
+  animation-name: hexy-loader-stride-b;
 }
 
 @keyframes hexy-loader-bob {
@@ -1570,9 +1604,14 @@ body {
   to { transform: translateY(-2px); }
 }
 
-@keyframes hexy-loader-stride {
-  from { transform: rotate(-10deg); }
-  to { transform: rotate(10deg); }
+@keyframes hexy-loader-stride-a {
+  0%, 100% { transform: rotate(-14deg) translateY(0); }
+  50% { transform: rotate(14deg) translateY(-4px); }
+}
+
+@keyframes hexy-loader-stride-b {
+  0%, 100% { transform: rotate(14deg) translateY(-4px); }
+  50% { transform: rotate(-14deg) translateY(0); }
 }
 
 @media (prefers-reduced-motion: reduce) {

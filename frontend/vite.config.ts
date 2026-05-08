@@ -16,7 +16,11 @@ export default defineConfig({
       '/health': 'http://localhost:8000',
       '/mujoco': { target: 'http://localhost:8000', ws: true },
       '/assets/rl': 'http://localhost:8000',
-      '/assets/cave': 'http://localhost:8000',
+      '/assets/cave': {
+        target: 'http://localhost:8000',
+        proxyTimeout: 120000,
+        timeout: 120000,
+      },
     },
   },
 })

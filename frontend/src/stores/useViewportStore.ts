@@ -14,9 +14,11 @@ type ViewportState = {
   pipCollapsed: boolean
   transitionPhase: TransitionPhase
   viewMode: ViewMode
+  freecamResetNonce: number
   setPipCollapsed: (collapsed: boolean) => void
   swap: () => void
   setViewMode: (mode: ViewMode) => void
+  resetFreecamCamera: () => void
 }
 
 let transitionTimers: number[] = []
@@ -39,12 +41,15 @@ export const useViewportStore = create<ViewportState>((set, get) => ({
   pipCollapsed: false,
   transitionPhase: 'idle',
   viewMode: 'orbital',
+  freecamResetNonce: 0,
   setPipCollapsed: (pipCollapsed) => set({ pipCollapsed }),
   setViewMode: (viewMode) =>
     set((state) => ({
       viewMode,
       pipSlot: viewMode === 'freecam' ? 'robotPOV' : state.pipSlot,
     })),
+  resetFreecamCamera: () =>
+    set((state) => ({ freecamResetNonce: state.freecamResetNonce + 1 })),
   swap: () => {
     if (get().viewMode === 'freecam') return
     if (get().transitionPhase !== 'idle') return

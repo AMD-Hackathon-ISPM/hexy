@@ -4,7 +4,7 @@ import { useRobotStatusStore } from '@/stores/useRobotStatusStore'
 
 const DEFAULT_BASE_URL = ''
 const STREAM_INTERVAL_MS = 50
-const UI_UPDATE_INTERVAL_MS = 100
+const UI_UPDATE_INTERVAL_MS = 50
 
 function buildWsUrl(baseUrl: string) {
   if (!baseUrl) {

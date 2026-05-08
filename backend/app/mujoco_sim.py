@@ -17,6 +17,10 @@ except ImportError as exc:  # pragma: no cover - handled by caller
     ) from exc
 
 
+KEY_DRIVE_SPEED = 0.70
+KEY_TURN_SPEED = 2.4
+
+
 class MujocoState(BaseModel):
     time: float
     qpos: List[float]
@@ -94,14 +98,12 @@ class MujocoSimulator:
         quat = self.data.qpos[qpos_adr + 3 : qpos_adr + 7]
         yaw = self._yaw_from_quat(quat)
 
-        drive_speed = 0.35
-        turn_speed = 1.2
         key = key.lower()
 
         if key in {"w", "s"}:
             direction = -1.0 if key == "w" else 1.0
-            self.data.qvel[qvel_adr] = direction * drive_speed * math.sin(yaw)
-            self.data.qvel[qvel_adr + 1] = -direction * drive_speed * math.cos(yaw)
+            self.data.qvel[qvel_adr] = direction * KEY_DRIVE_SPEED * math.sin(yaw)
+            self.data.qvel[qvel_adr + 1] = -direction * KEY_DRIVE_SPEED * math.cos(yaw)
             self.data.qvel[qvel_adr + 5] *= 0.4
             return
 
@@ -109,7 +111,7 @@ class MujocoSimulator:
             direction = 1.0 if key == "a" else -1.0
             self.data.qvel[qvel_adr] *= 0.4
             self.data.qvel[qvel_adr + 1] *= 0.4
-            self.data.qvel[qvel_adr + 5] = direction * turn_speed
+            self.data.qvel[qvel_adr + 5] = direction * KEY_TURN_SPEED
 
     def _root_freejoint_addresses_locked(self) -> tuple[int, int] | None:
         joint_id = mujoco.mj_name2id(

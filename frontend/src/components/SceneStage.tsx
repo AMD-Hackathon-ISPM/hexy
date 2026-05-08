@@ -3,9 +3,10 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { findBodyByName, useMujoco } from 'mujoco-react'
 import type { MujocoState } from '@/lib/backendClient'
-import type { CameraPreset, ViewMode } from '@/stores/useViewportStore'
+import { useViewportStore, type CameraPreset, type ViewMode } from '@/stores/useViewportStore'
 import { useRobotStatusStore } from '@/stores/useRobotStatusStore'
 import * as THREE from 'three'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 
 const cameraConfig = {
   orbit: {
@@ -20,7 +21,10 @@ const cameraConfig = {
   },
 } as const
 
-const ORBIT_TARGET = [0, 0, 0.22] as [number, number, number]
+const ORBIT_TARGET_FALLBACK = [0, 0, 0.22] as [number, number, number]
+const HEXAPOD_ORBIT_TARGET_OFFSET = [0, 0, 0.155] as [number, number, number]
+const ORBIT_CAMERA_OFFSET = [2.8, -2.2, 1.43] as [number, number, number]
+const MUJOCO_STATE_INTERPOLATION_MS = 70
 
 const cameraClip = {
   orbit: {
@@ -86,6 +90,7 @@ function getViewportBounds(
 function resetSceneCamera(
   camera: THREE.PerspectiveCamera,
   cameraPreset: CameraPreset,
+  orbitTarget?: THREE.Vector3,
 ) {
   camera.position.set(...cameraConfig[cameraPreset].position)
   camera.up.set(...cameraConfig[cameraPreset].up)
@@ -94,7 +99,13 @@ function resetSceneCamera(
   camera.far = cameraClip[cameraPreset].far
 
   if (cameraPreset === 'orbit') {
-    camera.lookAt(...ORBIT_TARGET)
+    const target = orbitTarget ?? new THREE.Vector3(...ORBIT_TARGET_FALLBACK)
+    camera.position.set(
+      target.x + ORBIT_CAMERA_OFFSET[0],
+      target.y + ORBIT_CAMERA_OFFSET[1],
+      target.z + ORBIT_CAMERA_OFFSET[2],
+    )
+    camera.lookAt(target)
   }
 
   camera.updateProjectionMatrix()
@@ -174,6 +185,49 @@ function disableSceneShadowsAndReflections(scene: THREE.Scene) {
 function MujocoStateSync() {
   const { api, isReady, mjModelRef } = useMujoco()
   const lastUpdateRef = useRef<number | null>(null)
+  const mismatchWarnedRef = useRef(false)
+  const fromQposRef = useRef<Float64Array | null>(null)
+  const toQposRef = useRef<Float64Array | null>(null)
+  const fromQvelRef = useRef<Float64Array | null>(null)
+  const toQvelRef = useRef<Float64Array | null>(null)
+  const renderedQposRef = useRef<Float64Array | null>(null)
+  const renderedQvelRef = useRef<Float64Array | null>(null)
+  const transitionStartedAtRef = useRef(0)
+  const transitionSettledRef = useRef(true)
+
+  const applyInterpolatedState = (alpha: number) => {
+    if (!api) return
+
+    const fromQpos = fromQposRef.current
+    const toQpos = toQposRef.current
+    const fromQvel = fromQvelRef.current
+    const toQvel = toQvelRef.current
+    if (!fromQpos || !toQpos || !fromQvel || !toQvel) return
+
+    const qpos = renderedQposRef.current ?? new Float64Array(toQpos.length)
+    const qvel = renderedQvelRef.current ?? new Float64Array(toQvel.length)
+    renderedQposRef.current = qpos
+    renderedQvelRef.current = qvel
+
+    for (let i = 0; i < toQpos.length; i += 1) {
+      qpos[i] = fromQpos[i] + (toQpos[i] - fromQpos[i]) * alpha
+    }
+    if (qpos.length >= 7) {
+      const rootQuatLength = Math.hypot(qpos[3], qpos[4], qpos[5], qpos[6])
+      if (rootQuatLength > 0) {
+        qpos[3] /= rootQuatLength
+        qpos[4] /= rootQuatLength
+        qpos[5] /= rootQuatLength
+        qpos[6] /= rootQuatLength
+      }
+    }
+    for (let i = 0; i < toQvel.length; i += 1) {
+      qvel[i] = fromQvel[i] + (toQvel[i] - fromQvel[i]) * alpha
+    }
+
+    api.setQpos(qpos)
+    api.setQvel(qvel)
+  }
 
   useEffect(() => {
     if (!isReady) return
@@ -188,11 +242,48 @@ function MujocoStateSync() {
       if (lastUpdateRef.current === mujocoState.updated_at) return
 
       const model = mjModelRef.current
-      if (model && mujocoState.qpos.length !== model.nq) return
-      if (model && mujocoState.qvel.length !== model.nv) return
+      if (model && mujocoState.qpos.length !== model.nq) {
+        if (!mismatchWarnedRef.current && import.meta.env.DEV) {
+          console.warn('[mujoco] ignored streamed qpos with mismatched model size', {
+            streamed: mujocoState.qpos.length,
+            browserModel: model.nq,
+          })
+          mismatchWarnedRef.current = true
+        }
+        return
+      }
+      if (model && mujocoState.qvel.length !== model.nv) {
+        if (!mismatchWarnedRef.current && import.meta.env.DEV) {
+          console.warn('[mujoco] ignored streamed qvel with mismatched model size', {
+            streamed: mujocoState.qvel.length,
+            browserModel: model.nv,
+          })
+          mismatchWarnedRef.current = true
+        }
+        return
+      }
 
-      api.setQpos(mujocoState.qpos)
-      api.setQvel(mujocoState.qvel)
+      const nextQpos = Float64Array.from(mujocoState.qpos)
+      const nextQvel = Float64Array.from(mujocoState.qvel)
+      const renderedQpos = renderedQposRef.current
+      const renderedQvel = renderedQvelRef.current
+
+      fromQposRef.current = renderedQpos
+        ? new Float64Array(renderedQpos)
+        : new Float64Array(nextQpos)
+      fromQvelRef.current = renderedQvel
+        ? new Float64Array(renderedQvel)
+        : new Float64Array(nextQvel)
+      toQposRef.current = nextQpos
+      toQvelRef.current = nextQvel
+      transitionStartedAtRef.current = performance.now()
+      transitionSettledRef.current = false
+
+      if (!renderedQpos || !renderedQvel) {
+        applyInterpolatedState(1)
+        transitionSettledRef.current = true
+      }
+
       lastUpdateRef.current = mujocoState.updated_at
     }
 
@@ -203,6 +294,18 @@ function MujocoStateSync() {
       applyMujocoState(state.mujocoState)
     })
   }, [api, isReady, mjModelRef])
+
+  useFrame(() => {
+    if (!isReady || !api || transitionSettledRef.current) return
+
+    const elapsed = performance.now() - transitionStartedAtRef.current
+    const alpha = Math.min(1, elapsed / MUJOCO_STATE_INTERPOLATION_MS)
+    applyInterpolatedState(alpha)
+
+    if (alpha >= 1) {
+      transitionSettledRef.current = true
+    }
+  })
 
   return null
 }
@@ -332,19 +435,136 @@ function OrbitCameraControls({
   camera,
   enabled,
   freecam,
+  targetRef,
+  freecamResetNonce,
 }: {
   camera: THREE.PerspectiveCamera
   enabled: boolean
   freecam: boolean
+  targetRef: RefObject<THREE.Vector3>
+  freecamResetNonce: number
 }) {
   const gl = useThree((state) => state.gl)
+  const mujoco = useMujoco()
+  const controlsRef = useRef<OrbitControlsImpl | null>(null)
+  const bodyIdRef = useRef(-1)
+  const nextTarget = useRef(new THREE.Vector3())
+  const targetDelta = useRef(new THREE.Vector3())
+  const orbitFocusInitializedRef = useRef(false)
+  const freecamFocusInitializedRef = useRef(false)
+  const lastFreecamResetNonceRef = useRef(freecamResetNonce)
+  const freecamPoseRef = useRef({
+    initialized: false,
+    position: new THREE.Vector3(),
+    target: new THREE.Vector3(),
+  })
+
+  const focusCameraOnTarget = (target: THREE.Vector3) => {
+    camera.position.set(
+      target.x + ORBIT_CAMERA_OFFSET[0],
+      target.y + ORBIT_CAMERA_OFFSET[1],
+      target.z + ORBIT_CAMERA_OFFSET[2],
+    )
+    camera.lookAt(target)
+    camera.updateMatrixWorld()
+    controlsRef.current?.target.copy(target)
+    controlsRef.current?.update()
+  }
+
+  const saveFreecamPose = () => {
+    const controls = controlsRef.current
+    if (!controls) return
+    freecamPoseRef.current.position.copy(camera.position)
+    freecamPoseRef.current.target.copy(controls.target)
+    freecamPoseRef.current.initialized = true
+  }
+
+  useEffect(() => {
+    if (!mujoco.isReady) return
+    const model = mujoco.mjModelRef.current
+    if (!model) return
+    bodyIdRef.current = findBodyByName(model, 'hexapod')
+  }, [mujoco.isReady, mujoco.mjModelRef])
+
+  useEffect(() => {
+    orbitFocusInitializedRef.current = false
+
+    if (freecam && freecamPoseRef.current.initialized) {
+      camera.position.copy(freecamPoseRef.current.position)
+      controlsRef.current?.target.copy(freecamPoseRef.current.target)
+      controlsRef.current?.update()
+      camera.updateMatrixWorld()
+      freecamFocusInitializedRef.current = true
+      return
+    }
+
+    freecamFocusInitializedRef.current = !freecam
+    controlsRef.current?.target.copy(targetRef.current)
+  }, [camera, freecam, targetRef])
+
+  useFrame(() => {
+    const data = mujoco.isReady ? mujoco.mjDataRef.current : null
+    const bodyId = bodyIdRef.current
+    const hasRobotPose = Boolean(data && bodyId >= 0)
+
+    if (hasRobotPose && data) {
+      const i3 = bodyId * 3
+      nextTarget.current.set(
+        data.xpos[i3] + HEXAPOD_ORBIT_TARGET_OFFSET[0],
+        data.xpos[i3 + 1] + HEXAPOD_ORBIT_TARGET_OFFSET[1],
+        data.xpos[i3 + 2] + HEXAPOD_ORBIT_TARGET_OFFSET[2],
+      )
+
+      targetDelta.current.copy(nextTarget.current).sub(targetRef.current)
+      if (targetDelta.current.lengthSq() > 0.00000001) {
+        targetRef.current.copy(nextTarget.current)
+        if (
+          (!freecam && !orbitFocusInitializedRef.current) ||
+          (freecam && !freecamFocusInitializedRef.current)
+        ) {
+          camera.position.add(targetDelta.current)
+        }
+      }
+    }
+
+    if (freecamResetNonce !== lastFreecamResetNonceRef.current) {
+      freecamPoseRef.current.initialized = false
+      freecamFocusInitializedRef.current = false
+
+      if (!freecam || hasRobotPose) {
+        lastFreecamResetNonceRef.current = freecamResetNonce
+      }
+
+      if (freecam && hasRobotPose) {
+        focusCameraOnTarget(targetRef.current)
+        freecamFocusInitializedRef.current = true
+        saveFreecamPose()
+      }
+    }
+
+    if (!freecam || !freecamFocusInitializedRef.current) {
+      controlsRef.current?.target.copy(targetRef.current)
+      if (!freecam || hasRobotPose) {
+        if (!freecam) {
+          orbitFocusInitializedRef.current = true
+        }
+        freecamFocusInitializedRef.current = true
+      }
+    }
+  }, -2)
+
+  useFrame(() => {
+    if (freecam && freecamFocusInitializedRef.current) {
+      saveFreecamPose()
+    }
+  })
 
   return (
     <OrbitControls
+      ref={controlsRef}
       key={freecam ? 'freecam' : 'orbital'}
       camera={camera}
       domElement={gl.domElement}
-      target={freecam ? undefined : ORBIT_TARGET}
       enableDamping
       enablePan={freecam}
       screenSpacePanning={freecam}
@@ -430,13 +650,15 @@ export function SceneStage({
 }: SceneStageProps) {
   const orbitCamera = useMemo(() => createSceneCamera('orbit'), [])
   const robotCamera = useMemo(() => createSceneCamera('robotPOV'), [])
+  const orbitTargetRef = useRef(new THREE.Vector3(...ORBIT_TARGET_FALLBACK))
+  const freecamResetNonce = useViewportStore((s) => s.freecamResetNonce)
   const robotPovOffset = useMemo(() => new THREE.Vector3(0.0, 0.0, 0.24), [])
   const robotPovForward = useMemo(() => new THREE.Vector3(0.9, 0.9, -0.45), [])
 
   useEffect(() => {
     if (viewMode === 'freecam') return
     if (mainCameraPreset === 'orbit' || pipCameraPreset === 'orbit') {
-      resetSceneCamera(orbitCamera, 'orbit')
+      resetSceneCamera(orbitCamera, 'orbit', orbitTargetRef.current)
     }
   }, [mainCameraPreset, orbitCamera, pipCameraPreset, viewMode])
 
@@ -451,6 +673,8 @@ export function SceneStage({
         camera={orbitCamera}
         enabled={mainCameraPreset === 'orbit'}
         freecam={viewMode === 'freecam'}
+        targetRef={orbitTargetRef}
+        freecamResetNonce={freecamResetNonce}
       />
       <RobotPovCamera
         camera={robotCamera}

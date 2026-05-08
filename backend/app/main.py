@@ -214,6 +214,7 @@ def _get_dino_service() -> GroundingDinoService:
 
 app = FastAPI(title="Hexy Backend", version="0.1.0")
 logger = logging.getLogger("uvicorn.error")
+WASD_GAIT_PHASE_RATE = 4.8
 
 assets_root = _resolve_assets_root()
 if assets_root.exists():
@@ -281,7 +282,7 @@ def _build_wasd_control(
         t = sim_time if sim_time is not None else 0.0
 
         for leg_index, (coxa_idx, femur_idx, tibia_idx) in enumerate(leg_controls):
-            phase = (t * 2.4 + tripod_offsets[leg_index]) % 1.0
+            phase = (t * WASD_GAIT_PHASE_RATE + tripod_offsets[leg_index]) % 1.0
             swing = phase < 0.5
             lift = math.sin(math.pi * min(phase * 2.0, 1.0)) if swing else 0.0
             stride = 0.75 if swing else -0.45

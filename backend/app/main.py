@@ -5,6 +5,7 @@ import asyncio
 import logging
 import math
 import os
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 import threading
 import time
@@ -49,6 +50,10 @@ def _resolve_model_path() -> Path:
         if candidate.exists():
             return candidate
 
+    generated_cave_model = _resolve_cave_root() / "cave_hexapod.xml"
+    if generated_cave_model.exists() and not os.getenv("RL_ROOT"):
+        return generated_cave_model
+
     rl_root = os.getenv("RL_ROOT")
     if rl_root:
         candidate = Path(rl_root) / "models" / "hexapod_static.xml"
@@ -90,7 +95,11 @@ def _resolve_cave_root() -> Path:
     if cave_root:
         return Path(cave_root)
 
-    return Path(__file__).resolve().parents[2] / "cave_env"
+    repo_root = Path(__file__).resolve().parents[2]
+    generated_cave_root = repo_root / "cave-gen" / "cave_env"
+    if generated_cave_root.exists():
+        return generated_cave_root
+    return repo_root / "cave_env"
 
 
 _simulator: MujocoSimulator | None = None
@@ -201,7 +210,7 @@ def _prepare_model_path(model_path: Path) -> Path:
 
     if patched_model != raw_model:
         tmp_name = f"hexy_{model_path.stem.replace(' ', '_')}.xml"
-        tmp_path = Path("/tmp") / tmp_name
+        tmp_path = Path(tempfile.gettempdir()) / tmp_name
         tmp_path.write_text(patched_model, encoding="utf-8")
         resolved_model_path = tmp_path
 
@@ -276,6 +285,182 @@ def _get_dino_service() -> GroundingDinoService:
 app = FastAPI(title="Hexy Backend", version="0.1.0")
 logger = logging.getLogger("uvicorn.error")
 WASD_GAIT_PHASE_RATE = 4.8
+WASD_STEP_LENGTH = 0.055
+WASD_TURN_STEP_LENGTH = 0.045
+WASD_SWING_HEIGHT = 0.035
+WASD_STANCE_PRESS = -0.004
+COXA_KP = 1.6
+LEG_KP = 2.2
+JOINT_KD = 0.06
+LEG_CTRL_LIMIT = 0.9
+JOINT_LIMITS_RAD = {
+    "coxa": (math.radians(-45.0), math.radians(45.0)),
+    "femur": (math.radians(-70.0), math.radians(70.0)),
+    "tibia": (math.radians(-120.0), math.radians(20.0)),
+}
+
+WASD_LEG_RAW_SPECS = (
+    {
+        "name": "front_left",
+        "actuators": (0, 1, 2),
+        "axis_sign": 1.0,
+        "phase_offset": 0.0,
+        "base": (0.030114, -0.037986, -0.012402),
+        "femur": (0.009459, -0.002609, 0.007674),
+        "tibia": (0.044345, -0.044318, -0.004287),
+        "foot": (0.006977, -0.014958, -0.055788),
+    },
+    {
+        "name": "front_right",
+        "actuators": (3, 4, 5),
+        "axis_sign": -1.0,
+        "phase_offset": 0.5,
+        "base": (-0.030114, -0.037986, -0.012402),
+        "femur": (-0.009459, -0.002609, 0.007674),
+        "tibia": (-0.044345, -0.044318, -0.004287),
+        "foot": (-0.006977, -0.014958, -0.055788),
+    },
+    {
+        "name": "center_left",
+        "actuators": (6, 7, 8),
+        "axis_sign": 1.0,
+        "phase_offset": 0.5,
+        "base": (0.035859, 0.001752, 0.014379),
+        "femur": (0.011493, 0.010205, -0.019107),
+        "tibia": (0.062694, 0.000019, -0.004287),
+        "foot": (0.015510, -0.005644, -0.055788),
+    },
+    {
+        "name": "center_right",
+        "actuators": (9, 10, 11),
+        "axis_sign": -1.0,
+        "phase_offset": 0.0,
+        "base": (-0.035859, 0.001752, 0.014379),
+        "femur": (-0.011493, 0.010205, -0.019107),
+        "tibia": (-0.062694, 0.000019, -0.004287),
+        "foot": (-0.015510, -0.005644, -0.055788),
+    },
+    {
+        "name": "back_left",
+        "actuators": (12, 13, 14),
+        "axis_sign": 1.0,
+        "phase_offset": 0.0,
+        "base": (0.015530, 0.043299, -0.012404),
+        "femur": (0.005152, 0.012775, 0.007676),
+        "tibia": (0.044318, 0.044345, -0.004287),
+        "foot": (0.014958, 0.006977, -0.055788),
+    },
+    {
+        "name": "back_right",
+        "actuators": (15, 16, 17),
+        "axis_sign": -1.0,
+        "phase_offset": 0.5,
+        "base": (-0.015530, 0.043299, -0.012404),
+        "femur": (-0.005152, 0.012775, 0.007676),
+        "tibia": (-0.044318, 0.044345, -0.004287),
+        "foot": (-0.014958, 0.006977, -0.055788),
+    },
+)
+
+
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))
+
+
+def _wrap_angle(value: float) -> float:
+    while value > math.pi:
+        value -= math.tau
+    while value < -math.pi:
+        value += math.tau
+    return value
+
+
+def _smoothstep(value: float) -> float:
+    value = _clamp(value, 0.0, 1.0)
+    return value * value * (3.0 - 2.0 * value)
+
+
+def _v_add(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+    return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
+
+
+def _v_sub(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
+def _dot_xy(a: tuple[float, float, float], b: tuple[float, float]) -> float:
+    return a[0] * b[0] + a[1] * b[1]
+
+
+def _rotate_z(vec: tuple[float, float, float], angle: float) -> tuple[float, float, float]:
+    cos_a = math.cos(angle)
+    sin_a = math.sin(angle)
+    return (
+        vec[0] * cos_a - vec[1] * sin_a,
+        vec[0] * sin_a + vec[1] * cos_a,
+        vec[2],
+    )
+
+
+def _prepare_leg_spec(raw: dict[str, object]) -> dict[str, object]:
+    femur = raw["femur"]
+    tibia = raw["tibia"]
+    foot = raw["foot"]
+    assert isinstance(femur, tuple)
+    assert isinstance(tibia, tuple)
+    assert isinstance(foot, tuple)
+
+    rest_rel = _v_add(_v_add(femur, tibia), foot)
+    rest_xy_len = max(math.hypot(rest_rel[0], rest_rel[1]), 1e-6)
+    plane_dir = (rest_rel[0] / rest_xy_len, rest_rel[1] / rest_xy_len)
+    femur_plane_x = _dot_xy(femur, plane_dir)
+    tibia_plane_x = _dot_xy(tibia, plane_dir)
+    foot_plane_x = _dot_xy(foot, plane_dir)
+    upper_len = max(math.hypot(tibia_plane_x, tibia[2]), 1e-6)
+    lower_len = max(math.hypot(foot_plane_x, foot[2]), 1e-6)
+    rest_upper_angle = math.atan2(tibia[2], tibia_plane_x)
+    rest_lower_angle = math.atan2(foot[2], foot_plane_x)
+    rest_relative_lower = _wrap_angle(rest_lower_angle - rest_upper_angle)
+
+    rest_target_x = tibia_plane_x + foot_plane_x
+    rest_target_z = tibia[2] + foot[2]
+    rest_dist = _clamp(
+        math.hypot(rest_target_x, rest_target_z),
+        abs(upper_len - lower_len) + 1e-5,
+        upper_len + lower_len - 1e-5,
+    )
+    rest_target_angle = math.atan2(rest_target_z, rest_target_x)
+    cos_shoulder = _clamp(
+        (upper_len * upper_len + rest_dist * rest_dist - lower_len * lower_len)
+        / (2.0 * upper_len * rest_dist),
+        -1.0,
+        1.0,
+    )
+    shoulder_offset = math.acos(cos_shoulder)
+    plus_error = abs(_wrap_angle(rest_target_angle + shoulder_offset - rest_upper_angle))
+    minus_error = abs(_wrap_angle(rest_target_angle - shoulder_offset - rest_upper_angle))
+    elbow_sign = 1.0 if plus_error <= minus_error else -1.0
+
+    spec = dict(raw)
+    spec.update(
+        {
+            "rest_rel": rest_rel,
+            "rest_foot": _v_add(raw["base"], rest_rel),  # type: ignore[arg-type]
+            "rest_yaw": math.atan2(rest_rel[1], rest_rel[0]),
+            "plane_dir": plane_dir,
+            "femur_plane_x": femur_plane_x,
+            "femur_z": femur[2],
+            "upper_len": upper_len,
+            "lower_len": lower_len,
+            "rest_upper_angle": rest_upper_angle,
+            "rest_relative_lower": rest_relative_lower,
+            "elbow_sign": elbow_sign,
+        }
+    )
+    return spec
+
+
+WASD_LEG_SPECS = tuple(_prepare_leg_spec(raw) for raw in WASD_LEG_RAW_SPECS)
 
 assets_root = _resolve_assets_root()
 if assets_root.exists():
@@ -330,6 +515,115 @@ class MujocoStepRequest(BaseModel):
     key: str | None = None
 
 
+def _foot_target_for_key(
+    spec: dict[str, object],
+    key: str,
+    sim_time: float,
+) -> tuple[float, float, float]:
+    rest_foot = spec["rest_foot"]
+    assert isinstance(rest_foot, tuple)
+    phase_offset = float(spec["phase_offset"])
+    phase = (sim_time * WASD_GAIT_PHASE_RATE + phase_offset) % 1.0
+
+    if key in {"w", "s"}:
+        direction = 1.0 if key == "w" else -1.0
+        step_vec = (0.0, direction * WASD_STEP_LENGTH, 0.0)
+    else:
+        turn_direction = 1.0 if key == "a" else -1.0
+        tangent = (-rest_foot[1], rest_foot[0])
+        tangent_len = max(math.hypot(tangent[0], tangent[1]), 1e-6)
+        step_vec = (
+            turn_direction * tangent[0] / tangent_len * WASD_TURN_STEP_LENGTH,
+            turn_direction * tangent[1] / tangent_len * WASD_TURN_STEP_LENGTH,
+            0.0,
+        )
+
+    if phase < 0.5:
+        swing_progress = _smoothstep(phase * 2.0)
+        travel = swing_progress - 0.5
+        lift = math.sin(math.pi * phase * 2.0) * WASD_SWING_HEIGHT
+        z = rest_foot[2] + lift
+    else:
+        stance_progress = _smoothstep((phase - 0.5) * 2.0)
+        travel = 0.5 - stance_progress
+        z = rest_foot[2] + WASD_STANCE_PRESS
+
+    return (
+        rest_foot[0] + step_vec[0] * travel,
+        rest_foot[1] + step_vec[1] * travel,
+        z,
+    )
+
+
+def _solve_leg_ik(
+    spec: dict[str, object],
+    target_foot: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    base = spec["base"]
+    plane_dir = spec["plane_dir"]
+    assert isinstance(base, tuple)
+    assert isinstance(plane_dir, tuple)
+
+    target_rel = _v_sub(target_foot, base)
+    rest_yaw = float(spec["rest_yaw"])
+    axis_sign = float(spec["axis_sign"])
+    physical_coxa = _wrap_angle(math.atan2(target_rel[1], target_rel[0]) - rest_yaw)
+    physical_coxa = _clamp(physical_coxa, *JOINT_LIMITS_RAD["coxa"])
+
+    rotated_rel = _rotate_z(target_rel, -physical_coxa)
+    target_x = _dot_xy(rotated_rel, plane_dir) - float(spec["femur_plane_x"])
+    target_z = rotated_rel[2] - float(spec["femur_z"])
+
+    upper_len = float(spec["upper_len"])
+    lower_len = float(spec["lower_len"])
+    min_dist = abs(upper_len - lower_len) + 1e-5
+    max_dist = upper_len + lower_len - 1e-5
+    target_dist = math.hypot(target_x, target_z)
+    if target_dist < 1e-6:
+        target_x = min_dist
+        target_z = 0.0
+        target_dist = min_dist
+    elif target_dist < min_dist or target_dist > max_dist:
+        clamped_dist = _clamp(target_dist, min_dist, max_dist)
+        scale = clamped_dist / target_dist
+        target_x *= scale
+        target_z *= scale
+        target_dist = clamped_dist
+
+    target_angle = math.atan2(target_z, target_x)
+    cos_shoulder = _clamp(
+        (upper_len * upper_len + target_dist * target_dist - lower_len * lower_len)
+        / (2.0 * upper_len * target_dist),
+        -1.0,
+        1.0,
+    )
+    upper_angle = target_angle + float(spec["elbow_sign"]) * math.acos(cos_shoulder)
+    knee_x = upper_len * math.cos(upper_angle)
+    knee_z = upper_len * math.sin(upper_angle)
+    lower_angle = math.atan2(target_z - knee_z, target_x - knee_x)
+
+    femur_physical = _wrap_angle(upper_angle - float(spec["rest_upper_angle"]))
+    tibia_physical = _wrap_angle(
+        _wrap_angle(lower_angle - upper_angle) - float(spec["rest_relative_lower"])
+    )
+
+    return (
+        _clamp(physical_coxa / axis_sign, *JOINT_LIMITS_RAD["coxa"]),
+        _clamp(femur_physical / axis_sign, *JOINT_LIMITS_RAD["femur"]),
+        _clamp(tibia_physical / axis_sign, *JOINT_LIMITS_RAD["tibia"]),
+    )
+
+
+def _actuator_joint_state(
+    simulator: MujocoSimulator,
+    actuator_index: int,
+) -> tuple[float, float]:
+    joint_id = int(simulator.model.actuator_trnid[actuator_index, 0])
+    qpos_index = int(simulator.model.jnt_qposadr[joint_id])
+    qvel_index = int(simulator.model.jnt_dofadr[joint_id])
+    return float(simulator.data.qpos[qpos_index]), float(simulator.data.qvel[qvel_index])
+
+
 def _build_wasd_control(
     simulator: MujocoSimulator,
     key: str,
@@ -342,33 +636,25 @@ def _build_wasd_control(
     num_ctrl = int(simulator.model.nu)
     if num_ctrl == 18:
         ctrl = [0.0] * 18
-        leg_controls = (
-            (0, 1, 2),
-            (3, 4, 5),
-            (6, 7, 8),
-            (9, 10, 11),
-            (12, 13, 14),
-            (15, 16, 17),
-        )
-        tripod_offsets = (0.0, 0.5, 0.5, 0.0, 0.0, 0.5)
-        side_signs = (1.0, -1.0, 1.0, -1.0, 1.0, -1.0)
         t = sim_time if sim_time is not None else 0.0
 
-        for leg_index, (coxa_idx, femur_idx, tibia_idx) in enumerate(leg_controls):
-            phase = (t * WASD_GAIT_PHASE_RATE + tripod_offsets[leg_index]) % 1.0
-            swing = phase < 0.5
-            lift = math.sin(math.pi * min(phase * 2.0, 1.0)) if swing else 0.0
-            stride = 0.75 if swing else -0.45
+        for spec in WASD_LEG_SPECS:
+            actuators = spec["actuators"]
+            assert isinstance(actuators, tuple)
+            target_foot = _foot_target_for_key(spec, key, t)
+            joint_targets = _solve_leg_ik(spec, target_foot)
 
-            if key in {"w", "s"}:
-                direction = -1.0 if key == "w" else 1.0
-                ctrl[coxa_idx] = direction * stride
-            else:
-                direction = 1.0 if key == "a" else -1.0
-                ctrl[coxa_idx] = direction * side_signs[leg_index] * stride
-
-            ctrl[femur_idx] = 0.65 + 0.25 * lift if swing else -0.25
-            ctrl[tibia_idx] = -0.55 if swing else 0.25
+            for joint_index, actuator_index in enumerate(actuators):
+                current_angle, joint_velocity = _actuator_joint_state(
+                    simulator, int(actuator_index)
+                )
+                kp = COXA_KP if joint_index == 0 else LEG_KP
+                angle_error = joint_targets[joint_index] - current_angle
+                ctrl[int(actuator_index)] = _clamp(
+                    kp * angle_error - JOINT_KD * joint_velocity,
+                    -LEG_CTRL_LIMIT,
+                    LEG_CTRL_LIMIT,
+                )
 
         return ctrl
 

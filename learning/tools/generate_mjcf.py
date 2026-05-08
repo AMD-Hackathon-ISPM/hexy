@@ -14,6 +14,8 @@ MESH_SCALE = f"{MESH_SCALE_VALUE} {MESH_SCALE_VALUE} {MESH_SCALE_VALUE}"
 SEGMENT_DENSITY = 250.0
 CONTACT_TYPE = "1"
 CONTACT_AFFINITY = "1"
+VISUAL_CONTACT_TYPE = "0"
+VISUAL_CONTACT_AFFINITY = "0"
 FOOT_RADIUS = "0.02"
 BODY_Z = 0.065
 
@@ -164,15 +166,15 @@ def build_leg_block(position: str, side: str) -> list[str]:
         f'      <body name="{label}" pos="{leg_pos}">',
         f'        <inertial pos="0 0 0" mass="{SEGMENT_INERTIALS["Coxa"]["mass"]}" diaginertia="{SEGMENT_INERTIALS["Coxa"]["diaginertia"]}"/>',
         f'        <joint name="{label}_coxa_joint" type="hinge" axis="{JOINT_AXES[side]["Coxa"]}" range="{JOINT_RANGES["Coxa"]}" damping="2" armature="0.01"/>',
-        f'        <geom type="mesh" mesh="{coxa_mesh}" pos="{coxa_geom_pos}" rgba="{SEGMENT_COLORS["Coxa"]}" density="{SEGMENT_DENSITY}" contype="{CONTACT_TYPE}" conaffinity="{CONTACT_AFFINITY}" friction="0.8 0.1 0.1"/>',
+        f'        <geom type="mesh" mesh="{coxa_mesh}" pos="{coxa_geom_pos}" rgba="{SEGMENT_COLORS["Coxa"]}" density="{SEGMENT_DENSITY}" contype="{VISUAL_CONTACT_TYPE}" conaffinity="{VISUAL_CONTACT_AFFINITY}" friction="0.8 0.1 0.1"/>',
         f'        <body name="{label}_femur" pos="{femur_pos}">',
         f'          <inertial pos="0 0 0" mass="{SEGMENT_INERTIALS["Femur"]["mass"]}" diaginertia="{SEGMENT_INERTIALS["Femur"]["diaginertia"]}"/>',
         f'          <joint name="{label}_femur_joint" type="hinge" axis="{JOINT_AXES[side]["Femur"]}" range="{JOINT_RANGES["Femur"]}" damping="2" armature="0.01"/>',
-        f'          <geom type="mesh" mesh="{femur_mesh}" pos="{femur_geom_pos}" rgba="{SEGMENT_COLORS["Femur"]}" density="{SEGMENT_DENSITY}" contype="{CONTACT_TYPE}" conaffinity="{CONTACT_AFFINITY}" friction="0.8 0.1 0.1"/>',
+        f'          <geom type="mesh" mesh="{femur_mesh}" pos="{femur_geom_pos}" rgba="{SEGMENT_COLORS["Femur"]}" density="{SEGMENT_DENSITY}" contype="{VISUAL_CONTACT_TYPE}" conaffinity="{VISUAL_CONTACT_AFFINITY}" friction="0.8 0.1 0.1"/>',
         f'          <body name="{label}_tibia" pos="{tibia_pos}">',
         f'            <inertial pos="0 0 0" mass="{SEGMENT_INERTIALS["Tibia"]["mass"]}" diaginertia="{SEGMENT_INERTIALS["Tibia"]["diaginertia"]}"/>',
         f'            <joint name="{label}_tibia_joint" type="hinge" axis="{JOINT_AXES[side]["Tibia"]}" range="{JOINT_RANGES["Tibia"]}" damping="1" armature="0.01"/>',
-        f'            <geom type="mesh" mesh="{tibia_mesh}" pos="{tibia_geom_pos}" rgba="{SEGMENT_COLORS["Tibia"]}" density="{SEGMENT_DENSITY}" contype="{CONTACT_TYPE}" conaffinity="{CONTACT_AFFINITY}" friction="1.2 0.2 0.2"/>',
+        f'            <geom type="mesh" mesh="{tibia_mesh}" pos="{tibia_geom_pos}" rgba="{SEGMENT_COLORS["Tibia"]}" density="{SEGMENT_DENSITY}" contype="{VISUAL_CONTACT_TYPE}" conaffinity="{VISUAL_CONTACT_AFFINITY}" friction="1.2 0.2 0.2"/>',
         f'            <geom name="{label}_foot" type="sphere" pos="{foot_pos}" size="{FOOT_RADIUS}" rgba="0 0 0 0" contype="{CONTACT_TYPE}" conaffinity="{CONTACT_AFFINITY}" friction="1.8 0.2 0.2"/>',
         "          </body>",
         "        </body>",
@@ -187,6 +189,8 @@ def build_worldbody_block() -> list[str]:
         '    <geom name="floor" type="plane" pos="0 0 0" size="3 3 0.1" material="grid"/>',
         "",
         f'    <body name="hexapod" pos="0 0 {BODY_Z}">',
+        '      <freejoint name="hexapod_root"/>',
+        '      <camera name="robot_pov" mode="fixed" pos="0 0 0.24" xyaxes="0.7071 -0.7071 0 0.2357 0.2357 0.9428"/>',
         f'      <geom name="body_visual" type="mesh" mesh="BODY" pos="{vec_text(scaled(neg(BODY_CENTROID)))}" rgba="0.72 0.72 0.76 1" contype="{CONTACT_TYPE}" conaffinity="{CONTACT_AFFINITY}" friction="0.8 0.1 0.1"/>',
         "",
     ]

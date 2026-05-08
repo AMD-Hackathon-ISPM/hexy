@@ -57,6 +57,8 @@ SKIP_TORCH_INSTALL=1
 - GET /health
 - GET /mujoco/state
 - POST /mujoco/reset
+- POST /mujoco/step
+  - body: { ctrl?: number[]; n_steps?: number; key?: 'w'|'a'|'s'|'d' }
 - WS /mujoco/stream?interval_ms=50
 - WS /mujoco/detections?interval_ms=100&width=640&height=480&prompt=person&camera=
 	- Default camera: GDINO_CAMERA_DEFAULT (robot_pov)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import asyncio
 import logging
+import math
 import os
 from concurrent.futures import ThreadPoolExecutor
 
@@ -41,7 +42,26 @@ def _resolve_model_path() -> Path:
         return candidate
 
     # Fallback: sibling folder when running from monorepo layout.
-    return Path(__file__).resolve().parents[2] / "learning" / "models" / "hexapod_static.xml"
+    return _resolve_static_model_path()
+
+
+def _resolve_static_model_path() -> Path:
+    rl_root = os.getenv("RL_ROOT")
+    if rl_root:
+        return Path(rl_root) / "models" / "hexapod_static.xml"
+
+    return (
+        Path(__file__).resolve().parents[2]
+        / "learning"
+        / "models"
+        / "hexapod_static.xml"
+    )
+
+
+def _is_auto_cave_model(model_path: Path) -> bool:
+    if os.getenv("MODEL_PATH"):
+        return False
+    return model_path == _resolve_cave_root() / "cave_hexapod.xml"
 
 
 def _resolve_assets_root() -> Path:
@@ -67,6 +87,66 @@ _dino_error: Exception | None = None
 _render_executor = ThreadPoolExecutor(max_workers=1)
 
 
+def _ensure_hexapod_freejoint(model_xml: str) -> str:
+    body_start = model_xml.find('<body name="hexapod"')
+    if body_start < 0:
+        return model_xml
+
+    body_tag_end = model_xml.find(">", body_start)
+    if body_tag_end < 0:
+        return model_xml
+
+    body_children_start = body_tag_end + 1
+    first_children = model_xml[body_children_start : body_children_start + 300]
+    if "<freejoint" in first_children or 'type="free"' in first_children:
+        return model_xml
+
+    line_start = model_xml.rfind("\n", 0, body_start) + 1
+    body_indent = model_xml[line_start:body_start]
+    joint_indent = f"{body_indent}  "
+    return (
+        model_xml[:body_children_start]
+        + f'\n{joint_indent}<freejoint name="hexapod_root"/>'
+        + model_xml[body_children_start:]
+    )
+
+
+def _prepare_model_path(model_path: Path) -> Path:
+    resolved_model_path = model_path
+    raw_model = model_path.read_text(encoding="utf-8")
+    patched_model = _ensure_hexapod_freejoint(raw_model)
+    assets_root = _resolve_assets_root()
+    stl_root = assets_root / "STLFILES"
+    if "file=\"../rl/STLFILES/" in patched_model:
+        patched_model = patched_model.replace(
+            'file="../rl/STLFILES/', f'file="{stl_root}/'
+        )
+
+    if "file=\"meshes/" in patched_model or "file=\"./meshes/" in patched_model:
+        cave_root = _resolve_cave_root()
+        cave_root_str = str(cave_root)
+        patched_model = patched_model.replace(
+            'file="meshes/', f'file="{cave_root_str}/meshes/'
+        )
+        patched_model = patched_model.replace(
+            'file="./meshes/', f'file="{cave_root_str}/meshes/'
+        )
+
+    # Fix meshdir path when creating temp file.
+    if 'meshdir="../STLFILES"' in patched_model:
+        patched_model = patched_model.replace(
+            'meshdir="../STLFILES"', f'meshdir="{stl_root}"'
+        )
+
+    if patched_model != raw_model:
+        tmp_name = f"hexy_{model_path.stem.replace(' ', '_')}.xml"
+        tmp_path = Path("/tmp") / tmp_name
+        tmp_path.write_text(patched_model, encoding="utf-8")
+        resolved_model_path = tmp_path
+
+    return resolved_model_path
+
+
 def _get_simulator() -> MujocoSimulator:
     global _simulator, _simulator_error
     if _simulator is not None:
@@ -81,37 +161,36 @@ def _get_simulator() -> MujocoSimulator:
         )
         raise _simulator_error
 
-    resolved_model_path = model_path
-    try:
-        raw_model = model_path.read_text(encoding="utf-8")
-        patched_model = raw_model
-        if "file=\"../rl/STLFILES/" in patched_model:
-            patched_model = patched_model.replace(
-                'file="../rl/STLFILES/', 'file="/vendor_rl/STLFILES/'
-            )
+    model_paths = [model_path]
+    if _is_auto_cave_model(model_path):
+        static_model_path = _resolve_static_model_path()
+        if static_model_path.exists() and static_model_path != model_path:
+            model_paths.append(static_model_path)
 
-        if "file=\"meshes/" in patched_model or "file=\"./meshes/" in patched_model:
-            cave_root = _resolve_cave_root()
-            cave_root_str = str(cave_root)
-            patched_model = patched_model.replace(
-                'file="meshes/', f'file="{cave_root_str}/meshes/'
-            )
-            patched_model = patched_model.replace(
-                'file="./meshes/', f'file="{cave_root_str}/meshes/'
-            )
+    last_error: Exception | None = None
+    for candidate_path in model_paths:
+        try:
+            resolved_model_path = _prepare_model_path(candidate_path)
+            _simulator = MujocoSimulator(resolved_model_path)
+            if candidate_path != model_path:
+                logger.warning(
+                    "loaded fallback MuJoCo model after cave scene failure: %s",
+                    candidate_path,
+                )
+            return _simulator
+        except Exception as exc:  # pragma: no cover - runtime dependency
+            last_error = exc
+            if candidate_path == model_path and len(model_paths) > 1:
+                logger.exception(
+                    "auto-detected cave MuJoCo model failed; falling back to static model"
+                )
+                continue
+            _simulator_error = exc
+            raise
 
-        if patched_model != raw_model:
-            tmp_path = Path("/tmp/hexy_cave_hexapod.xml")
-            tmp_path.write_text(patched_model, encoding="utf-8")
-            resolved_model_path = tmp_path
-    except Exception:
-        resolved_model_path = model_path
-
-    try:
-        _simulator = MujocoSimulator(resolved_model_path)
-    except Exception as exc:  # pragma: no cover - runtime dependency
-        _simulator_error = exc
-        raise
+    if last_error is not None:
+        _simulator_error = last_error
+        raise last_error
     return _simulator
 
 
@@ -124,6 +203,9 @@ def _get_dino_service() -> GroundingDinoService:
 
     try:
         _dino_service = GroundingDinoService()
+    except ImportError as exc:
+        _dino_error = RuntimeError("GroundingDINO not available - object detection disabled")
+        raise _dino_error
     except Exception as exc:  # pragma: no cover - runtime dependency
         _dino_error = exc
         raise
@@ -168,11 +250,83 @@ def mujoco_state() -> MujocoState:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/mujoco/reset", response_model=MujocoState, responses={503: {"model": ErrorResponse}})
-def mujoco_reset() -> MujocoState:
+class MujocoStepRequest(BaseModel):
+    ctrl: list[float] | None = None
+    n_steps: int = 1
+    key: str | None = None
+
+
+def _build_wasd_control(
+    simulator: MujocoSimulator,
+    key: str,
+    sim_time: float | None = None,
+) -> list[float]:
+    key = key.lower().strip()
+    if key not in {"w", "a", "s", "d"}:
+        raise ValueError("key must be one of: w, a, s, d")
+
+    num_ctrl = int(simulator.model.nu)
+    if num_ctrl == 18:
+        ctrl = [0.0] * 18
+        leg_controls = (
+            (0, 1, 2),
+            (3, 4, 5),
+            (6, 7, 8),
+            (9, 10, 11),
+            (12, 13, 14),
+            (15, 16, 17),
+        )
+        tripod_offsets = (0.0, 0.5, 0.5, 0.0, 0.0, 0.5)
+        side_signs = (1.0, -1.0, 1.0, -1.0, 1.0, -1.0)
+        t = sim_time if sim_time is not None else 0.0
+
+        for leg_index, (coxa_idx, femur_idx, tibia_idx) in enumerate(leg_controls):
+            phase = (t * 2.4 + tripod_offsets[leg_index]) % 1.0
+            swing = phase < 0.5
+            lift = math.sin(math.pi * min(phase * 2.0, 1.0)) if swing else 0.0
+            stride = 0.75 if swing else -0.45
+
+            if key in {"w", "s"}:
+                direction = 1.0 if key == "w" else -1.0
+                ctrl[coxa_idx] = direction * stride
+            else:
+                direction = 1.0 if key == "a" else -1.0
+                ctrl[coxa_idx] = direction * side_signs[leg_index] * stride
+
+            ctrl[femur_idx] = 0.65 + 0.25 * lift if swing else -0.25
+            ctrl[tibia_idx] = -0.55 if swing else 0.25
+
+        return ctrl
+
+    if key == "w":
+        return [0.7] * num_ctrl
+    if key == "s":
+        return [-0.7] * num_ctrl
+    if key == "a":
+        return [0.4] * num_ctrl
+    return [-0.4] * num_ctrl
+
+
+@app.post("/mujoco/step", response_model=MujocoState, responses={503: {"model": ErrorResponse}, 400: {"model": ErrorResponse}})
+def mujoco_step(request: MujocoStepRequest) -> MujocoState:
     try:
         simulator = _get_simulator()
-        return simulator.reset()
+        if request.key is not None:
+            key = request.key.lower().strip()
+            n_steps = max(
+                max(1, request.n_steps),
+                min(50, round(0.05 / float(simulator.model.opt.timestep))),
+            )
+            return simulator.drive_key(
+                key,
+                lambda sim_time: _build_wasd_control(simulator, key, sim_time),
+                n_steps=n_steps,
+            )
+        else:
+            ctrl = request.ctrl
+        return simulator.step(ctrl, n_steps=max(1, request.n_steps))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

@@ -805,6 +805,63 @@ body {
   outline-offset: 2px;
 }
 
+.hexy-dino-debug {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 13;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: auto;
+  font-family: "CommitMono", ui-monospace, monospace;
+}
+
+.hexy-dino-debug-toggle {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.4);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.hexy-dino-debug-toggle:hover {
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.hexy-dino-debug-panel {
+  width: 344px;
+  background: rgba(20, 20, 20, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  backdrop-filter: blur(10px);
+}
+
+.hexy-dino-debug-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.hexy-dino-debug-frame {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 /* ===== HUD: floating info panel (left) ===== */
 .hexy-info-panel {
   position: fixed;

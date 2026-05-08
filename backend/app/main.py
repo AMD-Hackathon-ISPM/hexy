@@ -12,6 +12,8 @@ import time
 import numpy as np
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
+from io import BytesIO
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -498,6 +500,31 @@ def request_dino_debug_capture(payload: DebugCaptureRequest) -> DebugCaptureResp
         return _dino_debug_capture.request(payload.count, payload.prefix)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/mujoco/detections/frame", responses={503: {"model": ErrorResponse}})
+def dino_debug_frame(
+    width: int = 640,
+    height: int = 360,
+    camera: str | None = None,
+) -> Response:
+    try:
+        simulator = _get_simulator()
+        camera_id, resolved_camera, fallback = simulator.resolve_camera(camera)
+        if fallback:
+            logger.info(
+                "[dino] frame camera fallback requested=%r resolved=%s",
+                camera,
+                resolved_camera,
+            )
+        frame = simulator.render_rgb_with_camera_id(width, height, camera_id)
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.fromarray(frame).save(buf, format="PNG")
+        return Response(content=buf.getvalue(), media_type="image/png")
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/mujoco/state", response_model=MujocoState, responses={503: {"model": ErrorResponse}})

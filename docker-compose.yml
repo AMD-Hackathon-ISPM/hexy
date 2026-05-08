@@ -17,9 +17,9 @@ services:
       GDINO_CAMERA_DEFAULT: robot_pov
       GDINO_BOX_THRESHOLD: "0.12"
       GDINO_TEXT_THRESHOLD: "0.12"
-      GDINO_WHITE_MIN_CHANNEL: "190"
-      GDINO_WHITE_MAX_SPREAD: "35"
-      GDINO_WHITE_MIN_RATIO: "0.06"
+      GDINO_WHITE_MIN_CHANNEL: "170"
+      GDINO_WHITE_MAX_SPREAD: "60"
+      GDINO_WHITE_MIN_RATIO: "0.03"
       GDINO_DEBUG_DIR: "/tmp/dino_debug"
       GDINO_HF_MODEL: LeBabyOx/dino-cave-survivor
       GDINO_HF_SUBFOLDER: checkpoint_epoch_8

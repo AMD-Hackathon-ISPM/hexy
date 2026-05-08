@@ -31,9 +31,9 @@ class GroundingDinoService:
         self._text_threshold = float(os.getenv("GDINO_TEXT_THRESHOLD", "0.25"))
         self._hf_model = os.getenv("GDINO_HF_MODEL", "LeBabyOx/dino-cave-survivor")
         self._hf_subfolder = os.getenv("GDINO_HF_SUBFOLDER", "checkpoint_epoch_8")
-        self._white_min_channel = int(os.getenv("GDINO_WHITE_MIN_CHANNEL", "190"))
-        self._white_max_spread = int(os.getenv("GDINO_WHITE_MAX_SPREAD", "35"))
-        self._white_min_ratio = float(os.getenv("GDINO_WHITE_MIN_RATIO", "0.06"))
+        self._white_min_channel = int(os.getenv("GDINO_WHITE_MIN_CHANNEL", "170"))
+        self._white_max_spread = int(os.getenv("GDINO_WHITE_MAX_SPREAD", "60"))
+        self._white_min_ratio = float(os.getenv("GDINO_WHITE_MIN_RATIO", "0.03"))
 
     def _resolve_device(self) -> str:
         device = os.getenv("GDINO_DEVICE", "auto").lower()
@@ -171,12 +171,19 @@ class GroundingDinoService:
             confidence = float(scores[idx].item()) if scores is not None and idx < len(scores) else 0.0
 
             # Color gate: humanoids are white/bright; cave walls are brown/dark.
-            # Keep boxes where enough pixels are white-ish: high min channel and low channel spread.
+            # Keep boxes where enough pixels are white-ish: high luma and low channel spread.
             crop = image[int(y1):int(y2), int(x1):int(x2)]
             if crop.size > 0:
                 min_ch = crop.min(axis=2)
                 max_ch = crop.max(axis=2)
-                whiteish = (min_ch >= self._white_min_channel) & ((max_ch - min_ch) <= self._white_max_spread)
+                luma = (
+                    0.2126 * crop[:, :, 0]
+                    + 0.7152 * crop[:, :, 1]
+                    + 0.0722 * crop[:, :, 2]
+                )
+                whiteish = (luma >= self._white_min_channel) & (
+                    (max_ch - min_ch) <= self._white_max_spread
+                )
                 if whiteish.mean() < self._white_min_ratio:
                     continue
 

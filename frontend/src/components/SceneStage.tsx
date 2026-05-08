@@ -17,7 +17,7 @@ const cameraConfig = {
   robotPOV: {
     position: [0.2, 0.0, 0.18] as [number, number, number],
     up: [0, 0, 1] as [number, number, number],
-    fov: 75,
+    fov: 45,
   },
 } as const
 
@@ -653,7 +653,7 @@ export function SceneStage({
   const orbitTargetRef = useRef(new THREE.Vector3(...ORBIT_TARGET_FALLBACK))
   const freecamResetNonce = useViewportStore((s) => s.freecamResetNonce)
   const robotPovOffset = useMemo(() => new THREE.Vector3(0.0, 0.0, 0.24), [])
-  const robotPovForward = useMemo(() => new THREE.Vector3(0.9, 0.9, -0.45), [])
+  const robotPovForward = useMemo(() => new THREE.Vector3(0.0, 0.990268, -0.139173), [])
 
   useEffect(() => {
     if (viewMode === 'freecam') return

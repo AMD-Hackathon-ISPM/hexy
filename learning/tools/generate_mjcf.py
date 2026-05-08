@@ -190,7 +190,7 @@ def build_worldbody_block() -> list[str]:
         "",
         f'    <body name="hexapod" pos="0 0 {BODY_Z}">',
         '      <freejoint name="hexapod_root"/>',
-        '      <camera name="robot_pov" mode="fixed" pos="0 0 0.24" xyaxes="0.7071 -0.7071 0 0.2357 0.2357 0.9428"/>',
+        '      <camera name="robot_pov" mode="fixed" pos="0 0 0.24" xyaxes="1 0 0 0 0.139173 0.990268" fovy="45"/>',
         f'      <geom name="body_visual" type="mesh" mesh="BODY" pos="{vec_text(scaled(neg(BODY_CENTROID)))}" rgba="0.72 0.72 0.76 1" contype="{CONTACT_TYPE}" conaffinity="{CONTACT_AFFINITY}" friction="0.8 0.1 0.1"/>',
         "",
     ]

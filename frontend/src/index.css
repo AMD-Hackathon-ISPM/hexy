@@ -805,63 +805,6 @@ body {
   outline-offset: 2px;
 }
 
-.hexy-dino-debug {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 13;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-  pointer-events: auto;
-  font-family: "CommitMono", ui-monospace, monospace;
-}
-
-.hexy-dino-debug-toggle {
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  padding: 6px 12px;
-  background: rgba(0, 0, 0, 0.4);
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.hexy-dino-debug-toggle:hover {
-  color: rgba(255, 255, 255, 0.95);
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.hexy-dino-debug-panel {
-  width: 344px;
-  background: rgba(20, 20, 20, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 10px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  backdrop-filter: blur(10px);
-}
-
-.hexy-dino-debug-header {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.hexy-dino-debug-frame {
-  width: 100%;
-  height: auto;
-  display: block;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
 /* ===== HUD: floating info panel (left) ===== */
 .hexy-info-panel {
   position: fixed;
@@ -1277,39 +1220,94 @@ body {
 
 /* ===== HUD: PiP camera (bottom-right) ===== */
 .hexy-pip {
+  --hexy-pip-padding: 10px;
+  --hexy-pip-header-height: 24px;
+  --hexy-pip-gap: 8px;
+  --hexy-pip-viewport-top: calc(
+    var(--hexy-pip-padding) + var(--hexy-pip-header-height) + var(--hexy-pip-gap)
+  );
   position: fixed;
   right: 24px;
   bottom: 16px;
-  width: 288px;
-  aspect-ratio: 16 / 9;
-  border-radius: 6px;
-  background: rgba(38, 38, 38, 0.55);
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  width: 344px;
+  border-radius: 10px;
+  background: transparent;
   border: 1px solid var(--hexy-chat-tray-border);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   box-sizing: border-box;
+  padding: var(--hexy-pip-padding);
   overflow: hidden;
   z-index: 15;
   color: #fff;
   font-family: "CommitMono", ui-monospace, monospace;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hexy-pip-gap);
+  pointer-events: none;
+}
+
+.hexy-pip::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: rgba(38, 38, 38, 0.55);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+  -webkit-mask:
+    linear-gradient(#000 0 0) 0 0 / 100% var(--hexy-pip-viewport-top) no-repeat,
+    linear-gradient(#000 0 0) 0 100% / 100% var(--hexy-pip-padding) no-repeat,
+    linear-gradient(#000 0 0) 0 var(--hexy-pip-viewport-top) / var(--hexy-pip-padding) calc(100% - var(--hexy-pip-viewport-top) - var(--hexy-pip-padding)) no-repeat,
+    linear-gradient(#000 0 0) 100% var(--hexy-pip-viewport-top) / var(--hexy-pip-padding) calc(100% - var(--hexy-pip-viewport-top) - var(--hexy-pip-padding)) no-repeat;
+  mask:
+    linear-gradient(#000 0 0) 0 0 / 100% var(--hexy-pip-viewport-top) no-repeat,
+    linear-gradient(#000 0 0) 0 100% / 100% var(--hexy-pip-padding) no-repeat,
+    linear-gradient(#000 0 0) 0 var(--hexy-pip-viewport-top) / var(--hexy-pip-padding) calc(100% - var(--hexy-pip-viewport-top) - var(--hexy-pip-padding)) no-repeat,
+    linear-gradient(#000 0 0) 100% var(--hexy-pip-viewport-top) / var(--hexy-pip-padding) calc(100% - var(--hexy-pip-viewport-top) - var(--hexy-pip-padding)) no-repeat;
 }
 
 .hexy-pip[data-has-canvas="true"] {
-  background: rgba(38, 38, 38, 0.12);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  background: transparent;
 }
 
 .hexy-pip[data-transitioning="true"] {
-  border-color: transparent;
-  box-shadow: none;
+  border-color: var(--hexy-chat-tray-border);
+}
+
+.hexy-pip-header {
+  position: relative;
+  z-index: 1;
+  min-height: var(--hexy-pip-header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.hexy-pip-heading {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.hexy-pip-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .hexy-pip-viewport {
-  position: absolute;
-  inset: 1px;
-  border-radius: 5px;
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
   overflow: hidden;
 }
 
@@ -1386,10 +1384,8 @@ body {
   display: block;
 }
 
-.hexy-pip-expand {
-  position: absolute;
-  top: 5px;
-  left: 5px;
+.hexy-pip-control {
+  pointer-events: auto;
   width: 24px;
   height: 24px;
   padding: 0;
@@ -1401,7 +1397,6 @@ body {
   border: 1px solid var(--hexy-chat-tray-border);
   box-sizing: border-box;
   cursor: pointer;
-  z-index: 2;
   color: rgba(255, 255, 255, 0.55);
   transition:
     color 150ms ease,
@@ -1409,32 +1404,27 @@ body {
     border-color 150ms ease;
 }
 
-.hexy-pip-expand svg {
+.hexy-pip-control svg {
   width: 14px;
   height: 14px;
   stroke-width: 2;
   color: currentColor;
 }
 
-.hexy-pip-expand:hover {
+.hexy-pip-control:hover {
   color: #fff;
   background: rgba(56, 56, 56, 0.75);
   border-color: rgba(255, 255, 255, 0.85);
 }
 
-.hexy-pip-expand:focus-visible {
+.hexy-pip-control:focus-visible {
   outline: 1.5px solid rgba(255, 255, 255, 0.9);
   outline-offset: 1px;
 }
 
-.hexy-pip-expand:disabled {
+.hexy-pip-control:disabled {
   cursor: default;
   opacity: 0.55;
-}
-
-.hexy-pip-collapse {
-  left: auto;
-  right: 5px;
 }
 
 .hexy-pip-restore {

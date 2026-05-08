@@ -74,8 +74,18 @@ def ensure_root_freejoint(hexapod_body: ET.Element) -> None:
 
 
 def ensure_robot_pov_camera(hexapod_body: ET.Element) -> None:
+    camera_attrs = {
+        "name": "robot_pov",
+        "mode": "fixed",
+        "pos": "0 0 0.24",
+        "xyaxes": "1 0 0 0 0.139173 0.990268",
+        "fovy": "45",
+    }
+
     for child in hexapod_body.findall("camera"):
         if child.get("name") == "robot_pov":
+            child.attrib.clear()
+            child.attrib.update(camera_attrs)
             return
 
     insert_index = (
@@ -85,12 +95,7 @@ def ensure_robot_pov_camera(hexapod_body: ET.Element) -> None:
         insert_index,
         ET.Element(
             "camera",
-            {
-                "name": "robot_pov",
-                "mode": "fixed",
-                "pos": "0 0 0.65",
-                "xyaxes": "0.7071 -0.7071 0 0.2357 0.2357 0.9428",
-            },
+            camera_attrs,
         ),
     )
 

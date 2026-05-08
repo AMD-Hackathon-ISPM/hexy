@@ -1,6 +1,5 @@
 import { forwardRef, type ReactNode } from 'react'
 import { useViewportStore } from '@/stores/useViewportStore'
-import RobotOverlay from './RobotOverlay'
 import {
   ArrowRightLeftIcon,
   Minimize2Icon,
@@ -41,30 +40,36 @@ function PipCameraFrame({ children, collapsed = false, hasCanvas: hasCanvasProp 
       data-has-canvas={hasCanvas}
       data-transitioning={isTransitioning}
     >
+      <div className="hexy-pip-header">
+        <span className="hexy-pip-heading">ROBOT VIEW</span>
+        <div className="hexy-pip-actions">
+          <button
+            type="button"
+            className="hexy-pip-control"
+            aria-label="Switch view"
+            title="Switch view"
+            disabled={isTransitioning}
+            onClick={swap}
+          >
+            <ArrowRightLeftIcon />
+          </button>
+          <button
+            type="button"
+            className="hexy-pip-control"
+            aria-label="Hide PiP view"
+            title="Hide PiP view"
+            disabled={isTransitioning}
+            onClick={() => setPipCollapsed(true)}
+          >
+            <Minimize2Icon />
+          </button>
+        </div>
+      </div>
       <div ref={ref} className="hexy-pip-viewport">
         {children}
         <CameraTransitionOverlay variant="pip" />
-        <RobotOverlay variant="pip" />
+        <div className="hexy-pip-label">ROBOT VIEW</div>
       </div>
-      <button
-        type="button"
-        className="hexy-pip-expand"
-        aria-label="Switch view"
-        disabled={isTransitioning}
-        onClick={swap}
-      >
-        <ArrowRightLeftIcon />
-      </button>
-      <button
-        type="button"
-        className="hexy-pip-expand hexy-pip-collapse"
-        aria-label="Hide PiP view"
-        disabled={isTransitioning}
-        onClick={() => setPipCollapsed(true)}
-      >
-        <Minimize2Icon />
-      </button>
-      <div className="hexy-pip-label">ROBOT VIEW</div>
     </div>
   )
 })

@@ -6,7 +6,6 @@ import { FloatingAssistantChat } from './FloatingAssistantChat'
 import { HeaderLabels } from './components/HeaderLabels'
 import { FloatingInfoPanel } from './components/FloatingInfoPanel'
 import { MujocoLoadingOverlay } from './components/MujocoLoadingOverlay'
-import { DinoDebugOverlay } from './components/DinoDebugOverlay'
 import { useMujocoStream } from './hooks/useMujocoStream'
 import { useWhisperStream } from './hooks/useWhisperStream'
 import { useDinoDetections } from './hooks/useDinoDetections'
@@ -156,7 +155,6 @@ function App() {
         <>
           <HeaderLabels />
           <FloatingInfoPanel />
-          <DinoDebugOverlay />
           <FloatingAssistantChat />
         </>
       )}

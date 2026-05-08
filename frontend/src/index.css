@@ -168,6 +168,12 @@ body {
 
 .hexy-chat-panel {
   transform-origin: bottom center;
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    max-height 300ms ease-out,
+    min-height 300ms ease-out,
+    height 300ms ease-out;
 }
 
 .hexy-chat-panel[data-expanded="true"] .hexy-chat-tray {
@@ -244,11 +250,11 @@ body {
   min-height: 0;
   max-width: none;
   height: 100%;
-  padding: 40px 24px 0; /* 24px horizontal so composer aligns with the tray inset */
-  justify-content: flex-end; /* cluster messages + composer at bottom */
+  padding: 40px 24px 0; 
+  justify-content: flex-end;
 }
 
-/* Collapsed: drop the top reservation so the composer can sit flush under the tray */
+
 .hexy-chat-panel[data-expanded="false"]
   [data-slot="aui_thread-viewport"]
   > div {
@@ -260,7 +266,7 @@ body {
   border-radius: 0;
   flex-shrink: 0;
   padding: 0;
-  margin-top: 0; /* override the JSX mt-auto so it doesn't tug content apart */
+  margin-top: 0;
   overscroll-behavior: none;
 }
 
@@ -275,7 +281,6 @@ body {
   overflow: hidden;
 }
 
-/* Collapsed: composer sits flush at the bottom, no top padding */
 .hexy-chat-panel[data-expanded="false"] .aui-thread-viewport-footer {
   padding: 0;
   border-radius: 0;
@@ -289,7 +294,7 @@ body {
   overflow-y: auto;
   overscroll-behavior: none;
   padding: 0 var(--hexy-chat-message-inline) 18px;
-  gap: 10px; /* tighter inter-message spacing */
+  gap: 10px; 
   min-width: 0;
   scrollbar-width: none;
 }
@@ -304,7 +309,6 @@ body {
   margin-top: 0;
 }
 
-/* Tighten the assistant action bar reservation so each turn feels denser */
 .hexy-chat-panel [data-slot="aui_assistant-message-footer"] {
   min-height: 24px;
   margin-bottom: -22px;
@@ -961,7 +965,7 @@ body {
 
 /* ===== Chat panel hide/show ===== */
 .hexy-chat-panel[data-visible="false"] {
-  transform: translateY(20px) scale(0.95);
+  transform: translateY(calc(100% + 16px));
   opacity: 0;
   pointer-events: none;
 }
@@ -985,9 +989,6 @@ body {
   border-radius: 999px;
   background: rgba(26, 26, 26, 0.78);
   border: 1px solid var(--hexy-chat-tray-border);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
   cursor: pointer;
   color: rgba(255, 255, 255, 0.7);
   padding: 0;
@@ -997,7 +998,6 @@ body {
     background 150ms ease,
     border-color 150ms ease,
     transform 150ms ease,
-    box-shadow 150ms ease,
     opacity 200ms ease;
 }
 
@@ -1005,7 +1005,6 @@ body {
   color: #fff;
   background: rgba(56, 56, 56, 0.92);
   border-color: rgba(255, 255, 255, 0.28);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
   transform: scale(1.06);
 }
 
@@ -1015,9 +1014,6 @@ body {
 
 .hexy-chat-close-btn:focus-visible {
   border-color: rgba(255, 255, 255, 0.45);
-  box-shadow:
-    0 0 0 2px rgba(255, 255, 255, 0.18),
-    0 6px 18px rgba(0, 0, 0, 0.45);
 }
 
 .hexy-chat-close-btn svg {
@@ -1029,8 +1025,8 @@ body {
 .hexy-chat-fab {
   position: fixed;
   bottom: 16px;
-  right: calc(24px + 288px + 12px);
-  transform: scale(1);
+  left: 50%;
+  transform: translateX(-50%) scale(1);
   width: 44px;
   height: 44px;
   display: flex;
@@ -1041,17 +1037,14 @@ body {
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
   border: 1px solid var(--hexy-chat-tray-border);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 4px 16px rgba(0, 0, 0, 0.25);
   z-index: 20;
   cursor: pointer;
   color: rgba(255, 255, 255, 0.75);
   padding: 0;
+  opacity: 0.5;
   transition:
     color 150ms ease,
     background 150ms ease,
-    box-shadow 150ms ease,
     opacity 300ms cubic-bezier(0.4, 0, 0.2, 1),
     transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1059,16 +1052,14 @@ body {
 .hexy-chat-fab:hover {
   color: #fff;
   background: rgba(56, 56, 56, 0.8);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 6px 20px rgba(0, 0, 0, 0.35);
-  transform: scale(1.06);
+  opacity: 1;
+  transform: translateX(-50%) scale(1.06);
 }
 
 .hexy-chat-fab[data-visible="false"] {
   opacity: 0;
   pointer-events: none;
-  transform: scale(0.6) rotate(-15deg);
+  transform: translateX(-50%) scale(0.6) rotate(-15deg);
 }
 
 .hexy-chat-fab svg {
@@ -1340,10 +1331,12 @@ body {
   cursor: pointer;
   z-index: 15;
   color: rgba(255, 255, 255, 0.72);
+  opacity: 0.5;
   transition:
     color 150ms ease,
     background 150ms ease,
-    border-color 150ms ease;
+    border-color 150ms ease,
+    opacity 150ms ease;
 }
 
 .hexy-pip-restore svg {
@@ -1357,6 +1350,7 @@ body {
   color: #fff;
   background: rgba(56, 56, 56, 0.75);
   border-color: rgba(255, 255, 255, 0.85);
+  opacity: 1;
 }
 
 .hexy-pip-restore:focus-visible {

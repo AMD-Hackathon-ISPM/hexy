@@ -4,7 +4,7 @@ from pathlib import Path
 import math
 import threading
 import time
-from typing import Iterable, List
+from typing import Callable, Iterable, List
 
 import numpy as np
 from pydantic import BaseModel
@@ -61,9 +61,95 @@ class MujocoSimulator:
                 mujoco.mj_step(self.model, self.data)
             return self._state_locked()
 
+    def drive_key(
+        self,
+        key: str,
+        ctrl_builder: Callable[[float], List[float]],
+        n_steps: int = 1,
+    ) -> MujocoState:
+        with self._lock:
+            for _ in range(max(1, n_steps)):
+                ctrl = ctrl_builder(float(self.data.time))
+                if len(ctrl) != self.model.nu:
+                    raise ValueError(
+                        f"Expected {self.model.nu} control values, got {len(ctrl)}"
+                    )
+                self.data.ctrl[:] = np.array(ctrl, dtype=np.float64)
+                self._stabilize_base_pose_locked()
+                self._apply_base_key_velocity_locked(key)
+                mujoco.mj_step(self.model, self.data)
+                self._stabilize_base_pose_locked()
+            return self._state_locked()
+
     def state(self) -> MujocoState:
         with self._lock:
             return self._state_locked()
+
+    def _apply_base_key_velocity_locked(self, key: str) -> None:
+        root_addresses = self._root_freejoint_addresses_locked()
+        if root_addresses is None:
+            return
+        qpos_adr, qvel_adr = root_addresses
+
+        quat = self.data.qpos[qpos_adr + 3 : qpos_adr + 7]
+        yaw = self._yaw_from_quat(quat)
+
+        drive_speed = 0.35
+        turn_speed = 1.2
+        key = key.lower()
+
+        if key in {"w", "s"}:
+            direction = 1.0 if key == "w" else -1.0
+            self.data.qvel[qvel_adr] = direction * drive_speed * math.sin(yaw)
+            self.data.qvel[qvel_adr + 1] = -direction * drive_speed * math.cos(yaw)
+            self.data.qvel[qvel_adr + 5] *= 0.4
+            return
+
+        if key in {"a", "d"}:
+            direction = 1.0 if key == "a" else -1.0
+            self.data.qvel[qvel_adr] *= 0.4
+            self.data.qvel[qvel_adr + 1] *= 0.4
+            self.data.qvel[qvel_adr + 5] = direction * turn_speed
+
+    def _root_freejoint_addresses_locked(self) -> tuple[int, int] | None:
+        joint_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_JOINT, "hexapod_root"
+        )
+        if joint_id < 0:
+            return None
+        if self.model.jnt_type[joint_id] != mujoco.mjtJoint.mjJNT_FREE:
+            return None
+
+        qpos_adr = int(self.model.jnt_qposadr[joint_id])
+        qvel_adr = int(self.model.jnt_dofadr[joint_id])
+        if qpos_adr + 7 > self.model.nq or qvel_adr + 6 > self.model.nv:
+            return None
+        return qpos_adr, qvel_adr
+
+    def _stabilize_base_pose_locked(self) -> None:
+        root_addresses = self._root_freejoint_addresses_locked()
+        if root_addresses is None:
+            return
+        qpos_adr, qvel_adr = root_addresses
+
+        quat = self.data.qpos[qpos_adr + 3 : qpos_adr + 7]
+        yaw = self._yaw_from_quat(quat)
+        half_yaw = 0.5 * yaw
+        self.data.qpos[qpos_adr + 3 : qpos_adr + 7] = np.array(
+            [math.cos(half_yaw), 0.0, 0.0, math.sin(half_yaw)],
+            dtype=np.float64,
+        )
+        self.data.qvel[qvel_adr + 2] = min(max(self.data.qvel[qvel_adr + 2], -0.15), 0.15)
+        self.data.qvel[qvel_adr + 3] = 0.0
+        self.data.qvel[qvel_adr + 4] = 0.0
+        mujoco.mj_forward(self.model, self.data)
+
+    @staticmethod
+    def _yaw_from_quat(quat: np.ndarray) -> float:
+        return math.atan2(
+            2.0 * (quat[0] * quat[3] + quat[1] * quat[2]),
+            1.0 - 2.0 * (quat[2] * quat[2] + quat[3] * quat[3]),
+        )
 
     def _state_locked(self) -> MujocoState:
         def _sanitize(values: Iterable[float]) -> List[float]:

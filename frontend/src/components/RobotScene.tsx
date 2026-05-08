@@ -132,16 +132,27 @@ export function RobotScene({
     return buildHexyConfig(baseUrl, sceneFile)
   }, [sceneFile])
 
+  const handleMujocoError = (error: unknown, source: string) => {
+    if (import.meta.env.DEV) {
+      console.error(`[mujoco] ${source} error`, error)
+    }
+
+    if (sceneFile === CAVE_SCENE_FILE) {
+      sceneReadyRef.current = false
+      window.sessionStorage.setItem(CAVE_DISABLED_SESSION_KEY, '1')
+      onLoadDetail?.('Cave scene failed; loading static hexapod')
+      setSceneFile(DEFAULT_SCENE_FILE)
+      return
+    }
+
+    onLoadError?.(error instanceof Error ? error.message : String(error))
+  }
+
   if (!config) return null
 
   return (
     <MujocoProvider
-      onError={(error) => {
-        if (import.meta.env.DEV) {
-          console.error('[mujoco] provider error', error)
-        }
-        onLoadError?.(error.message)
-      }}
+      onError={(error) => handleMujocoError(error, 'provider')}
     >
       <div ref={mainViewRef} className="hexy-scene">
         <CameraTransitionOverlay variant="main" />
@@ -159,12 +170,7 @@ export function RobotScene({
           key={sceneFile}
           config={config}
           paused
-          onError={(error) => {
-            if (import.meta.env.DEV) {
-              console.error('[mujoco] scene error', error)
-            }
-            onLoadError?.(error.message)
-          }}
+          onError={(error) => handleMujocoError(error, 'scene')}
           onReady={() => {
             sceneReadyRef.current = true
             onLoadDetail?.('MuJoCo scene ready')

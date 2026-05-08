@@ -45,6 +45,7 @@ export function resetMujoco(): Promise<MujocoState> {
 export function stepMujoco(payload?: {
   ctrl?: number[]
   n_steps?: number
+  key?: 'w' | 'a' | 's' | 'd'
 }): Promise<MujocoState> {
   return requestJson('/mujoco/step', {
     method: 'POST',

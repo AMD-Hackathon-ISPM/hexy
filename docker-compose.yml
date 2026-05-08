@@ -10,9 +10,10 @@ services:
       CORS_ORIGINS: "*"
       MUJOCO_GL: egl
       PYOPENGL_PLATFORM: egl
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics
-      GDINO_DEVICE: auto
+      # GPU configuration removed for macOS compatibility
+      # NVIDIA_VISIBLE_DEVICES: all
+      # NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics
+      GDINO_DEVICE: cpu  # Force CPU for macOS
       GDINO_PROMPT_DEFAULT: person
       GDINO_CAMERA_DEFAULT: robot_pov
       GDINO_BOX_THRESHOLD: "0.35"
@@ -20,7 +21,7 @@ services:
       GDINO_WEIGHTS_PATH: /models/groundingdino/groundingdino_swint_ogc.pth
       HF_TOKEN: ${HF_TOKEN:-}
       WHISPER_MODEL: base
-      WHISPER_DEVICE: auto
+      WHISPER_DEVICE: cpu  # Force CPU for macOS
       WHISPER_EMIT_PROB: "0.75"
       WHISPER_MIN_INTERVAL_SEC: "2.0"
       WHISPER_MAX_INTERVAL_SEC: "6.0"
@@ -36,7 +37,8 @@ services:
       - ./modelSetUp/groundingDino/weights:/models/groundingdino:ro
     ports:
       - "${HEXY_API_PORT:-8000}:8000"
-    gpus: all
+    # GPU configuration removed for macOS compatibility
+    # gpus: all
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 5s

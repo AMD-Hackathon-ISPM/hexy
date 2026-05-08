@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { stepMujoco } from './lib/backendClient'
+import { useRobotStatusStore } from './stores/useRobotStatusStore'
 import { AssistantChatRuntimeProvider } from './AssistantChatRuntimeProvider'
 import { FloatingAssistantChat } from './FloatingAssistantChat'
 import { HeaderLabels } from './components/HeaderLabels'
@@ -42,6 +43,9 @@ function App() {
 
       inFlight = true
       stepMujoco({ key: activeKey, n_steps: 4 })
+        .then((state) => {
+          useRobotStatusStore.getState().setMujocoStreamState(state)
+        })
         .catch(() => {
           // ignore transient movement errors while the backend reconnects
         })

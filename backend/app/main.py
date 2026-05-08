@@ -287,7 +287,7 @@ def _build_wasd_control(
             stride = 0.75 if swing else -0.45
 
             if key in {"w", "s"}:
-                direction = 1.0 if key == "w" else -1.0
+                direction = -1.0 if key == "w" else 1.0
                 ctrl[coxa_idx] = direction * stride
             else:
                 direction = 1.0 if key == "a" else -1.0
@@ -299,9 +299,9 @@ def _build_wasd_control(
         return ctrl
 
     if key == "w":
-        return [0.7] * num_ctrl
-    if key == "s":
         return [-0.7] * num_ctrl
+    if key == "s":
+        return [0.7] * num_ctrl
     if key == "a":
         return [0.4] * num_ctrl
     return [-0.4] * num_ctrl

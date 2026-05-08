@@ -17,8 +17,10 @@ services:
       GDINO_CAMERA_DEFAULT: robot_pov
       GDINO_BOX_THRESHOLD: "0.35"
       GDINO_TEXT_THRESHOLD: "0.25"
-      GDINO_WEIGHTS_PATH: /models/groundingdino/groundingdino_swint_ogc.pth
+      GDINO_HF_MODEL: LeBabyOx/dino-cave-survivor
+      GDINO_HF_SUBFOLDER: checkpoint_epoch_8
       HF_TOKEN: ${HF_TOKEN:-}
+      HUGGINGFACE_HUB_TOKEN: ${HF_TOKEN:-}
       WHISPER_MODEL: base
       WHISPER_DEVICE: auto
       WHISPER_EMIT_PROB: "0.75"
@@ -33,7 +35,7 @@ services:
     volumes:
       - ./learning:/vendor_rl:ro
       - ./cave-gen/cave_env:/cave_assets:ro
-      - ./modelSetUp/groundingDino/weights:/models/groundingdino:ro
+      - hf_cache:/root/.cache/huggingface
     ports:
       - "${HEXY_API_PORT:-8000}:8000"
     gpus: all
@@ -119,3 +121,4 @@ services:
 
 volumes:
   cave_dataset:
+  hf_cache:

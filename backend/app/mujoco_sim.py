@@ -99,7 +99,7 @@ class MujocoSimulator:
         key = key.lower()
 
         if key in {"w", "s"}:
-            direction = 1.0 if key == "w" else -1.0
+            direction = -1.0 if key == "w" else 1.0
             self.data.qvel[qvel_adr] = direction * drive_speed * math.sin(yaw)
             self.data.qvel[qvel_adr + 1] = -direction * drive_speed * math.cos(yaw)
             self.data.qvel[qvel_adr + 5] *= 0.4

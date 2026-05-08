@@ -18,11 +18,3 @@ __pycache__/
 # editors
 .vscode/
 .idea/
-
-# cave-gen generated outputs
-/cave-gen/dataset/
-/cave-gen/cave_env/meshes/
-/cave-gen/cave_env/cave_maze.xml
-/cave-gen/cave_env/cave_episode.xml
-/cave-gen/cave_env/cave_hexapod.xml
-/cave-gen/__pycache__/

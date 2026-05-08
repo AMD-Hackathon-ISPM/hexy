@@ -1,8 +1,8 @@
 import { forwardRef, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useViewportStore } from '@/stores/useViewportStore'
 import {
+  ArrowRightFromLineIcon,
   ArrowRightLeftIcon,
-  Minimize2Icon,
   PictureInPicture2Icon,
 } from 'lucide-react'
 import { CameraTransitionOverlay } from './CameraTransitionOverlay'
@@ -88,7 +88,7 @@ function PipCameraFrame({ children, collapsed = false, hasCanvas: hasCanvasProp 
             disabled={isTransitioning || closing}
             onClick={closePip}
           >
-            <Minimize2Icon />
+            <ArrowRightFromLineIcon />
           </button>
         </div>
       </div>

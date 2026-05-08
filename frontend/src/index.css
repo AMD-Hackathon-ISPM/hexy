@@ -138,7 +138,7 @@ body {
   --hexy-chat-tray-inline: 46px;
   --hexy-chat-header-padding-inline: 18px;
   --hexy-chat-message-inline: 32px;
-  --hexy-chat-composer: #292929;
+  --hexy-chat-composer: rgba(38, 38, 38, 0.55);
   --hexy-chat-composer-border: rgba(255, 255, 255, 0.12);
   --hexy-chat-text: #f4f4f4;
   --hexy-chat-muted: #d4d4d4;
@@ -355,6 +355,8 @@ body {
   min-height: 56px;
   border-color: var(--hexy-chat-composer-border);
   background: var(--hexy-chat-composer);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
@@ -874,7 +876,16 @@ body {
   align-items: center;
   flex-shrink: 0;
   min-height: 36px;
-  gap: 8px;
+  padding: 6px 8px 6px 8px;
+}
+
+.hexy-panel-footer-row {
+  --hexy-panel-header-control-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-shrink: 0;
+  min-height: 36px;
   padding: 6px 8px 6px 8px;
 }
 
@@ -991,9 +1002,9 @@ body {
 .hexy-panel-expand-btn {
   position: fixed;
   left: 24px;
-  top: 120px;
-  width: 24px;
-  height: 24px;
+  bottom: 16px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1003,29 +1014,40 @@ body {
   -webkit-backdrop-filter: blur(16px) saturate(140%);
   border: 1px solid var(--hexy-chat-tray-border);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-sizing: border-box;
   z-index: 20;
   cursor: pointer;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.72);
+  opacity: 0.5;
   padding: 0;
+  transform: scale(1);
   transition:
     color 150ms ease,
     background 150ms ease,
-    opacity 300ms ease;
+    opacity 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .hexy-panel-expand-btn:hover {
   color: #fff;
-  background: rgba(56, 56, 56, 0.75);
+  background: rgba(56, 56, 56, 0.8);
+  opacity: 1;
+  transform: scale(1.06);
 }
 
 .hexy-panel-expand-btn[data-visible="false"] {
   opacity: 0;
   pointer-events: none;
+  transform: translateX(-16px) scale(1);
+}
+
+.hexy-panel-expand-btn[data-visible="true"] {
+  animation: hexy-panel-restore-enter 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .hexy-panel-expand-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   stroke-width: 2;
 }
 
@@ -1243,6 +1265,11 @@ body {
   flex-direction: column;
   gap: var(--hexy-pip-gap);
   pointer-events: none;
+  transform: translateX(0);
+  opacity: 1;
+  transition:
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .hexy-pip::before {
@@ -1274,6 +1301,11 @@ body {
 
 .hexy-pip[data-transitioning="true"] {
   border-color: var(--hexy-chat-tray-border);
+}
+
+.hexy-pip[data-closing="true"] {
+  transform: translateX(calc(100% + 24px));
+  opacity: 0;
 }
 
 .hexy-pip-header {
@@ -1427,6 +1459,12 @@ body {
   opacity: 0.55;
 }
 
+.hexy-pip-control:disabled:hover {
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(38, 38, 38, 0.55);
+  border-color: var(--hexy-chat-tray-border);
+}
+
 .hexy-pip-restore {
   position: fixed;
   right: 24px;
@@ -1445,11 +1483,14 @@ body {
   z-index: 15;
   color: rgba(255, 255, 255, 0.72);
   opacity: 0.5;
+  transform: scale(1);
   transition:
     color 150ms ease,
     background 150ms ease,
     border-color 150ms ease,
-    opacity 150ms ease;
+    opacity 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  animation: hexy-pip-restore-enter 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .hexy-pip-restore svg {
@@ -1461,14 +1502,36 @@ body {
 
 .hexy-pip-restore:hover {
   color: #fff;
-  background: rgba(56, 56, 56, 0.75);
-  border-color: rgba(255, 255, 255, 0.85);
+  background: rgba(56, 56, 56, 0.8);
   opacity: 1;
+  transform: scale(1.06);
 }
 
 .hexy-pip-restore:focus-visible {
   outline: 1.5px solid rgba(255, 255, 255, 0.9);
   outline-offset: 1px;
+}
+
+@keyframes hexy-pip-restore-enter {
+  from {
+    opacity: 0;
+    transform: translateX(16px) scale(1);
+  }
+  to {
+    opacity: 0.5;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes hexy-panel-restore-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-16px) scale(1);
+  }
+  to {
+    opacity: 0.5;
+    transform: translateX(0) scale(1);
+  }
 }
 
 .hexy-pip-label {

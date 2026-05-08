@@ -5,8 +5,8 @@ import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { cn } from '@/lib/utils'
 import {
   ArrowLeftToLineIcon,
-  ArrowRightFromLineIcon,
   MinusIcon,
+  PanelLeftOpenIcon,
   PlusIcon,
 } from 'lucide-react'
 
@@ -160,14 +160,6 @@ export function FloatingInfoPanel() {
     <>
       <div className="hexy-info-panel" data-visible={panelVisible}>
         <div className="hexy-panel-header-row">
-          <button
-            type="button"
-            className="hexy-panel-hide-btn"
-            onClick={() => setPanelVisible(false)}
-            aria-label="Hide panel"
-          >
-            <ArrowLeftToLineIcon />
-          </button>
           <TabBar tab={tab} onTabChange={setTab} />
         </div>
         <div className="hexy-panel-scroll">
@@ -213,6 +205,16 @@ export function FloatingInfoPanel() {
             </InfoSection>
           )}
         </div>
+        <div className="hexy-panel-footer-row">
+          <button
+            type="button"
+            className="hexy-panel-hide-btn"
+            onClick={() => setPanelVisible(false)}
+            aria-label="Hide panel"
+          >
+            <ArrowLeftToLineIcon />
+          </button>
+        </div>
       </div>
       <button
         type="button"
@@ -221,7 +223,7 @@ export function FloatingInfoPanel() {
         onClick={() => setPanelVisible(true)}
         aria-label="Show panel"
       >
-        <ArrowRightFromLineIcon />
+        <PanelLeftOpenIcon />
       </button>
     </>
   )

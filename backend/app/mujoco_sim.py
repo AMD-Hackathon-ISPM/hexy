@@ -71,7 +71,16 @@ class MujocoSimulator:
         ctrl_builder: Callable[[float], List[float]],
         n_steps: int = 1,
     ) -> MujocoState:
+        key = key.lower().strip()
         with self._lock:
+            locked_heading_yaw: float | None = None
+            if key in {"w", "s"}:
+                root_addresses = self._root_freejoint_addresses_locked()
+                if root_addresses is not None:
+                    qpos_adr, _ = root_addresses
+                    quat = self.data.qpos[qpos_adr + 3 : qpos_adr + 7]
+                    locked_heading_yaw = self._yaw_from_quat(quat)
+
             for _ in range(max(1, n_steps)):
                 ctrl = ctrl_builder(float(self.data.time))
                 if len(ctrl) != self.model.nu:
@@ -79,24 +88,28 @@ class MujocoSimulator:
                         f"Expected {self.model.nu} control values, got {len(ctrl)}"
                     )
                 self.data.ctrl[:] = np.array(ctrl, dtype=np.float64)
-                self._stabilize_base_pose_locked()
-                self._apply_base_key_velocity_locked(key)
+                self._stabilize_base_pose_locked(locked_heading_yaw)
+                self._apply_base_key_velocity_locked(key, locked_heading_yaw)
                 mujoco.mj_step(self.model, self.data)
-                self._stabilize_base_pose_locked()
+                self._stabilize_base_pose_locked(locked_heading_yaw)
             return self._state_locked()
 
     def state(self) -> MujocoState:
         with self._lock:
             return self._state_locked()
 
-    def _apply_base_key_velocity_locked(self, key: str) -> None:
+    def _apply_base_key_velocity_locked(
+        self,
+        key: str,
+        heading_yaw: float | None = None,
+    ) -> None:
         root_addresses = self._root_freejoint_addresses_locked()
         if root_addresses is None:
             return
         qpos_adr, qvel_adr = root_addresses
 
         quat = self.data.qpos[qpos_adr + 3 : qpos_adr + 7]
-        yaw = self._yaw_from_quat(quat)
+        yaw = heading_yaw if heading_yaw is not None else self._yaw_from_quat(quat)
 
         key = key.lower()
 
@@ -104,7 +117,7 @@ class MujocoSimulator:
             direction = -1.0 if key == "w" else 1.0
             self.data.qvel[qvel_adr] = direction * KEY_DRIVE_SPEED * math.sin(yaw)
             self.data.qvel[qvel_adr + 1] = -direction * KEY_DRIVE_SPEED * math.cos(yaw)
-            self.data.qvel[qvel_adr + 5] *= 0.4
+            self.data.qvel[qvel_adr + 5] = 0.0
             return
 
         if key in {"a", "d"}:
@@ -128,14 +141,14 @@ class MujocoSimulator:
             return None
         return qpos_adr, qvel_adr
 
-    def _stabilize_base_pose_locked(self) -> None:
+    def _stabilize_base_pose_locked(self, heading_yaw: float | None = None) -> None:
         root_addresses = self._root_freejoint_addresses_locked()
         if root_addresses is None:
             return
         qpos_adr, qvel_adr = root_addresses
 
         quat = self.data.qpos[qpos_adr + 3 : qpos_adr + 7]
-        yaw = self._yaw_from_quat(quat)
+        yaw = heading_yaw if heading_yaw is not None else self._yaw_from_quat(quat)
         half_yaw = 0.5 * yaw
         self.data.qpos[qpos_adr + 3 : qpos_adr + 7] = np.array(
             [math.cos(half_yaw), 0.0, 0.0, math.sin(half_yaw)],
@@ -144,6 +157,8 @@ class MujocoSimulator:
         self.data.qvel[qvel_adr + 2] = min(max(self.data.qvel[qvel_adr + 2], -0.15), 0.15)
         self.data.qvel[qvel_adr + 3] = 0.0
         self.data.qvel[qvel_adr + 4] = 0.0
+        if heading_yaw is not None:
+            self.data.qvel[qvel_adr + 5] = 0.0
         mujoco.mj_forward(self.model, self.data)
 
     @staticmethod

@@ -353,7 +353,7 @@ function RobotPovCamera({ camera, offset, forward }: RobotPovCameraProps) {
     )
 
     tmpPos.current.copy(offset).applyQuaternion(bodyQuat.current).add(bodyPos.current)
-    tmpLook.current.copy(forwardRef.current).applyQuaternion(bodyQuat.current).add(bodyPos.current)
+    tmpLook.current.copy(forwardRef.current).applyQuaternion(bodyQuat.current).add(tmpPos.current)
 
     camera.position.copy(tmpPos.current)
     camera.up.set(0, 0, 1)

@@ -708,6 +708,41 @@ body {
   gap: 6px;
 }
 
+.hexy-camera-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  height: 31px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.hexy-camera-picker-label {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.hexy-camera-select {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: rgba(255, 255, 255, 0.9);
+  font-family: "CommitMono", ui-monospace, monospace;
+  font-size: 12px;
+  padding-right: 8px;
+  cursor: pointer;
+}
+
+.hexy-camera-select:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
+}
+
 .hexy-view-mode-toggle {
   display: inline-flex;
   border: 1px solid rgba(255, 255, 255, 0.2);

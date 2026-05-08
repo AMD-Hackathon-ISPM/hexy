@@ -6,6 +6,9 @@ import logging
 import math
 import os
 from concurrent.futures import ThreadPoolExecutor
+import threading
+import time
+import numpy as np
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +22,16 @@ from .whisper_stream import stream_transcriptions
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+class DebugCaptureRequest(BaseModel):
+    count: int = 1
+    prefix: str | None = None
+
+
+class DebugCaptureResponse(BaseModel):
+    remaining: int
+    directory: str
 
 
 def _parse_cors_origins(raw: str) -> list[str]:
@@ -85,6 +98,54 @@ _simulator_error: Exception | None = None
 _dino_service: GroundingDinoService | None = None
 _dino_error: Exception | None = None
 _render_executor = ThreadPoolExecutor(max_workers=1)
+
+
+class DinoDebugCapture:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._remaining = 0
+        self._prefix = "dino"
+        self._directory = Path(os.getenv("GDINO_DEBUG_DIR", "/tmp/dino_debug"))
+
+    def request(self, count: int, prefix: str | None) -> DebugCaptureResponse:
+        safe_count = max(1, min(int(count), 25))
+        with self._lock:
+            self._remaining = safe_count
+            if prefix:
+                self._prefix = "".join(ch for ch in prefix if ch.isalnum() or ch in "-_")[:32]
+        return DebugCaptureResponse(
+            remaining=self.remaining(),
+            directory=str(self._directory),
+        )
+
+    def remaining(self) -> int:
+        with self._lock:
+            return self._remaining
+
+    def capture(self, frame, camera_label: str, width: int, height: int) -> str | None:
+        with self._lock:
+            if self._remaining <= 0:
+                return None
+            self._remaining -= 1
+            index = self._remaining
+            prefix = self._prefix
+
+        self._directory.mkdir(parents=True, exist_ok=True)
+        timestamp_ms = int(time.time() * 1000)
+        safe_camera = "".join(
+            ch for ch in (camera_label or "default") if ch.isalnum() or ch in "-_"
+        )
+        filename = f"{prefix}_{safe_camera}_{width}x{height}_{timestamp_ms}_{index}.png"
+        filepath = self._directory / filename
+        from PIL import Image
+
+        if frame.dtype != np.uint8:
+            frame = frame.clip(0, 255).astype("uint8")
+        Image.fromarray(frame).save(filepath)
+        return str(filepath)
+
+
+_dino_debug_capture = DinoDebugCapture()
 
 
 def _ensure_hexapod_freejoint(model_xml: str) -> str:
@@ -240,6 +301,18 @@ if cors_origins:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post(
+    "/mujoco/detections/debug",
+    response_model=DebugCaptureResponse,
+    responses={400: {"model": ErrorResponse}},
+)
+def request_dino_debug_capture(payload: DebugCaptureRequest) -> DebugCaptureResponse:
+    try:
+        return _dino_debug_capture.request(payload.count, payload.prefix)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/mujoco/state", response_model=MujocoState, responses={503: {"model": ErrorResponse}})
@@ -424,17 +497,32 @@ async def mujoco_detections(websocket: WebSocket) -> None:
         return
 
     detection_config = dino_service.build_config(prompt)
+    camera_id, resolved_camera, fallback = simulator.resolve_camera(camera_name)
+    logger.info(
+        "[dino] camera requested=%r resolved=%s fallback=%s",
+        camera_name,
+        resolved_camera,
+        fallback,
+    )
 
     try:
         while True:
             loop = asyncio.get_running_loop()
             frame = await loop.run_in_executor(
                 _render_executor,
-                simulator.render_rgb,
+                simulator.render_rgb_with_camera_id,
                 width,
                 height,
-                camera_name,
+                camera_id,
             )
+            if _dino_debug_capture.remaining() > 0:
+                await asyncio.to_thread(
+                    _dino_debug_capture.capture,
+                    frame,
+                    resolved_camera,
+                    width,
+                    height,
+                )
             detections = await asyncio.to_thread(
                 dino_service.detect, frame, detection_config
             )

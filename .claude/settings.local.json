@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker cp *)",
+      "Bash(docker restart *)",
+      "Bash(cd /d \"d:/Hackathons/Hexy/hexy\")",
+      "Bash(docker compose *)",
+      "Bash(docker exec hexy-backend python -c ' *)",
+      "Bash(docker wait *)"
+    ]
+  }
+}

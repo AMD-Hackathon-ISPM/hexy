@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useRobotStatusStore } from '@/stores/useRobotStatusStore'
+import { useViewportStore } from '@/stores/useViewportStore'
 import type { DinoDetection } from '@/stores/useRobotStatusStore'
 
 const DEFAULT_BASE_URL = ''
@@ -7,12 +8,16 @@ const STREAM_INTERVAL_MS = 200
 const FRAME_WIDTH = 640
 const FRAME_HEIGHT = 360
 
-function buildWsUrl(baseUrl: string) {
+function buildWsUrl(baseUrl: string, camera: string) {
   const params = new URLSearchParams({
     interval_ms: String(STREAM_INTERVAL_MS),
     width: String(FRAME_WIDTH),
     height: String(FRAME_HEIGHT),
   })
+
+  if (camera) {
+    params.set('camera', camera)
+  }
 
   if (!baseUrl) {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -28,6 +33,7 @@ type DetectionPayload = {
 
 export function useDinoDetections() {
   const setDinoDetections = useRobotStatusStore((s) => s.setDinoDetections)
+  const dinoCamera = useViewportStore((s) => s.dinoCamera)
   const reconnectTimerRef = useRef<number | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
 
@@ -60,7 +66,7 @@ export function useDinoDetections() {
       }
 
       const baseUrl = import.meta.env.VITE_HEXY_BE_URL ?? DEFAULT_BASE_URL
-      const wsUrl = buildWsUrl(baseUrl)
+      const wsUrl = buildWsUrl(baseUrl, dinoCamera)
       const socket = new WebSocket(wsUrl)
       socketRef.current = socket
 
@@ -134,5 +140,5 @@ export function useDinoDetections() {
         socket.close()
       }
     }
-  }, [setDinoDetections])
+  }, [dinoCamera, setDinoDetections])
 }

@@ -174,6 +174,26 @@ class MujocoSimulator:
         height: int = 480,
         camera_name: str | None = None,
     ) -> np.ndarray:
+        camera_id, _, _ = self.resolve_camera(camera_name)
+        return self.render_rgb_with_camera_id(width, height, camera_id)
+
+    def resolve_camera(self, camera_name: str | None) -> tuple[int | None, str, bool]:
+        with self._lock:
+            if not camera_name:
+                return None, "default", False
+            candidate = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_CAMERA, camera_name
+            )
+            if candidate < 0:
+                return None, "default", True
+            return int(candidate), camera_name, False
+
+    def render_rgb_with_camera_id(
+        self,
+        width: int,
+        height: int,
+        camera_id: int | None,
+    ) -> np.ndarray:
         width = max(64, int(width))
         height = max(64, int(height))
 
@@ -187,18 +207,10 @@ class MujocoSimulator:
                 self._render_width = width
                 self._render_height = height
 
-            camera_id = None
-            if camera_name:
-                candidate = mujoco.mj_name2id(
-                    self.model, mujoco.mjtObj.mjOBJ_CAMERA, camera_name
-                )
-                if candidate >= 0:
-                    camera_id = candidate
-
             if camera_id is None:
                 self._renderer.update_scene(self.data)
             else:
-                self._renderer.update_scene(self.data, camera=camera_id)
+                self._renderer.update_scene(self.data, camera=int(camera_id))
 
             frame = self._renderer.render()
             return frame.copy()

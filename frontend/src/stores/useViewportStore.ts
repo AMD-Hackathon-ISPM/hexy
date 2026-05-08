@@ -9,16 +9,20 @@ export type TransitionPhase =
   | 'initializing'
   | 'revealing'
 
+const DEFAULT_DINO_CAMERA = import.meta.env.VITE_HEXY_DINO_CAMERA ?? 'robot_pov'
+
 type ViewportState = {
   pipSlot: CameraPreset
   pipCollapsed: boolean
   transitionPhase: TransitionPhase
   viewMode: ViewMode
   freecamResetNonce: number
+  dinoCamera: string
   setPipCollapsed: (collapsed: boolean) => void
   swap: () => void
   setViewMode: (mode: ViewMode) => void
   resetFreecamCamera: () => void
+  setDinoCamera: (camera: string) => void
 }
 
 let transitionTimers: number[] = []
@@ -42,6 +46,7 @@ export const useViewportStore = create<ViewportState>((set, get) => ({
   transitionPhase: 'idle',
   viewMode: 'orbital',
   freecamResetNonce: 0,
+  dinoCamera: DEFAULT_DINO_CAMERA,
   setPipCollapsed: (pipCollapsed) => set({ pipCollapsed }),
   setViewMode: (viewMode) =>
     set((state) => ({
@@ -50,6 +55,7 @@ export const useViewportStore = create<ViewportState>((set, get) => ({
     })),
   resetFreecamCamera: () =>
     set((state) => ({ freecamResetNonce: state.freecamResetNonce + 1 })),
+  setDinoCamera: (dinoCamera) => set({ dinoCamera }),
   swap: () => {
     if (get().viewMode === 'freecam') return
     if (get().transitionPhase !== 'idle') return

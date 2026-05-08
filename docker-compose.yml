@@ -13,10 +13,14 @@ services:
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics
       GDINO_DEVICE: auto
-      GDINO_PROMPT_DEFAULT: person
+      GDINO_PROMPT_DEFAULT: person . human . survivor . human silhouette
       GDINO_CAMERA_DEFAULT: robot_pov
-      GDINO_BOX_THRESHOLD: "0.35"
-      GDINO_TEXT_THRESHOLD: "0.25"
+      GDINO_BOX_THRESHOLD: "0.12"
+      GDINO_TEXT_THRESHOLD: "0.12"
+      GDINO_WHITE_MIN_CHANNEL: "190"
+      GDINO_WHITE_MAX_SPREAD: "35"
+      GDINO_WHITE_MIN_RATIO: "0.06"
+      GDINO_DEBUG_DIR: "/tmp/dino_debug"
       GDINO_HF_MODEL: LeBabyOx/dino-cave-survivor
       GDINO_HF_SUBFOLDER: checkpoint_epoch_8
       HF_TOKEN: ${HF_TOKEN:-}

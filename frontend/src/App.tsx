@@ -14,6 +14,8 @@ const RobotScene = lazy(() => import('./components/RobotScene'))
 const LOADER_READY_PAUSE_MS = 5000
 const LOADER_FADE_MS = 320
 const MOVEMENT_STEP_MS = 50
+const MOVEMENT_STEPS_PER_TICK = 4
+const MAX_MOVEMENT_CATCHUP_STEPS = 24
 const MOVEMENT_KEYS = ['w', 'a', 's', 'd'] as const
 
 type MovementKey = (typeof MOVEMENT_KEYS)[number]
@@ -37,12 +39,21 @@ function App() {
     let activeKey: MovementKey | null = null
     let intervalId: number | null = null
     let inFlight = false
+    let lastMovementStepAt = 0
 
     const sendMovementStep = () => {
       if (!activeKey || inFlight) return
 
+      const now = performance.now()
+      const elapsedMs = lastMovementStepAt > 0 ? now - lastMovementStepAt : MOVEMENT_STEP_MS
+      const nSteps = Math.min(
+        MAX_MOVEMENT_CATCHUP_STEPS,
+        Math.max(1, Math.round((elapsedMs / MOVEMENT_STEP_MS) * MOVEMENT_STEPS_PER_TICK)),
+      )
+
       inFlight = true
-      stepMujoco({ key: activeKey, n_steps: 4 })
+      lastMovementStepAt = now
+      stepMujoco({ key: activeKey, n_steps: nSteps })
         .then((state) => {
           useRobotStatusStore.getState().setMujocoStreamState(state)
         })
@@ -56,6 +67,7 @@ function App() {
 
     const startMovementLoop = () => {
       if (intervalId !== null) return
+      lastMovementStepAt = 0
       sendMovementStep()
       intervalId = window.setInterval(sendMovementStep, MOVEMENT_STEP_MS)
     }
@@ -65,6 +77,7 @@ function App() {
         window.clearInterval(intervalId)
         intervalId = null
       }
+      lastMovementStepAt = 0
       stepMujoco({ n_steps: 1 }).catch(() => {
         // ignore movement errors during shutdown
       })

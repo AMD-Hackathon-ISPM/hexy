@@ -94,20 +94,31 @@ class WhisperModel:
 
 
 class SyntheticAudioSource:
-    def __init__(self, phrases: List[str], sample_rate: int = 16000) -> None:
+    def __init__(
+        self,
+        phrases: List[str],
+        sample_rate: int = 16000,
+        source_ids: Iterable[str] | None = None,
+    ) -> None:
         self._phrases = phrases
         self._sample_rate = sample_rate
         self._cache: dict[str, np.ndarray] = {}
         self._cache_lock = threading.Lock()
         self._tts_lock = threading.Lock()
-        self._source_ids = [
-            "humanoid-1",
-            "humanoid-2",
-            "humanoid-3",
-            "humanoid-4",
+        configured_source_ids = [
+            source_id.strip()
+            for source_id in (
+                source_ids
+                or os.getenv(
+                    "WHISPER_SOURCE_IDS",
+                    "survivor_0,survivor_1,survivor_2,survivor_3",
+                ).split(",")
+            )
+            if source_id.strip()
         ]
+        self._source_ids = configured_source_ids or ["survivor_0"]
 
-    def generate_phrase(self) -> tuple[np.ndarray, float, float, str, float]:
+    def generate_phrase(self) -> tuple[np.ndarray, str, float, float, str, float]:
         phrase = random.choice(self._phrases)
         mono = self._get_or_synthesize(phrase)
 
@@ -130,7 +141,7 @@ class SyntheticAudioSource:
         mono_mix = stereo.mean(axis=1)
 
         rms = float(np.sqrt(np.mean(np.square(mono_mix))))
-        return mono_mix.astype(np.float32), pan, distance_m, source_id, rms
+        return mono_mix.astype(np.float32), phrase, pan, distance_m, source_id, rms
 
     def _get_or_synthesize(self, phrase: str) -> np.ndarray:
         with self._cache_lock:
@@ -195,13 +206,14 @@ def estimate_direction(pan: float) -> str:
 async def stream_transcriptions(
     send_json,
     interval_sec: float = 3.0,
+    source_ids: Iterable[str] | None = None,
 ) -> None:
     phrases = [
         "help",
         "save me",
         "over here",
     ]
-    source = SyntheticAudioSource(phrases)
+    source = SyntheticAudioSource(phrases, source_ids=source_ids)
     whisper_model = WhisperModel()
     memory = TranscriptMemory()
     detector = KeywordDetector(phrases)
@@ -224,12 +236,20 @@ async def stream_transcriptions(
 
     while True:
         if random.random() <= emit_prob:
-            audio, pan, distance_m, source_id, rms = await asyncio.to_thread(
+            audio, phrase, pan, distance_m, source_id, rms = await asyncio.to_thread(
                 source.generate_phrase
             )
             if rms < rms_threshold or rms > rms_max:
                 await asyncio.sleep(get_delay())
                 continue
+            await send_json(
+                {
+                    "audio_emit": True,
+                    "phrase": phrase,
+                    "timestamp": time.time(),
+                    "source_id": source_id,
+                }
+            )
             transcript = await asyncio.to_thread(whisper_model.transcribe, audio)
             timestamp = time.time()
             direction = estimate_direction(pan)

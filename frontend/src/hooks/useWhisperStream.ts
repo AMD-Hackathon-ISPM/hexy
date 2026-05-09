@@ -24,6 +24,13 @@ type WhisperTranscriptMessage = {
   source_id?: string
 }
 
+type WhisperAudioEmitMessage = {
+  audio_emit?: boolean
+  phrase?: string
+  timestamp?: number
+  source_id?: string
+}
+
 type WhisperAlertMessage = {
   audio_alert?: boolean
   keyword?: string
@@ -32,6 +39,7 @@ type WhisperAlertMessage = {
 export function useWhisperStream() {
   const setAudioTranscript = useRobotStatusStore((s) => s.setAudioTranscript)
   const setAudioAlert = useRobotStatusStore((s) => s.setAudioAlert)
+  const setSurvivorAudioEvent = useRobotStatusStore((s) => s.setSurvivorAudioEvent)
   const reconnectTimerRef = useRef<number | null>(null)
   const alertTimerRef = useRef<number | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
@@ -87,7 +95,16 @@ export function useWhisperStream() {
       socket.onmessage = (event) => {
         if (cancelled) return
         try {
-          const payload = JSON.parse(event.data) as WhisperTranscriptMessage & WhisperAlertMessage
+          const payload = JSON.parse(event.data) as
+            WhisperTranscriptMessage & WhisperAudioEmitMessage & WhisperAlertMessage
+
+          if (payload.audio_emit && payload.phrase && payload.source_id) {
+            setSurvivorAudioEvent({
+              phrase: payload.phrase,
+              sourceId: payload.source_id,
+              timestamp: payload.timestamp ?? Date.now() / 1000,
+            })
+          }
 
           if (payload.transcript) {
             setAudioTranscript({
@@ -161,5 +178,5 @@ export function useWhisperStream() {
         socket.close()
       }
     }
-  }, [setAudioAlert, setAudioTranscript])
+  }, [setAudioAlert, setAudioTranscript, setSurvivorAudioEvent])
 }

@@ -98,6 +98,19 @@ class MujocoSimulator:
         with self._lock:
             return self._state_locked()
 
+    def body_names_with_prefix(self, prefix: str) -> List[str]:
+        with self._lock:
+            names: List[str] = []
+            for body_id in range(int(self.model.nbody)):
+                name = mujoco.mj_id2name(
+                    self.model,
+                    mujoco.mjtObj.mjOBJ_BODY,
+                    body_id,
+                )
+                if name and name.startswith(prefix):
+                    names.append(name)
+            return names
+
     def _apply_base_key_velocity_locked(
         self,
         key: str,

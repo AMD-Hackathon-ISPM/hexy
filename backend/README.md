@@ -54,7 +54,6 @@ SKIP_TORCH_INSTALL=1
 
 ## API overview
 
-- GET /health
 - GET /mujoco/state
 - POST /mujoco/reset
 - POST /mujoco/step

@@ -2,6 +2,8 @@ services:
   backend:
     build:
       context: ./backend
+      args:
+        LLAMA_CPP_CUDA_ARCH: ${LLAMA_CPP_CUDA_ARCH:-all-major}
     image: hexy-backend:latest
     container_name: hexy-backend
     environment:
@@ -10,23 +12,28 @@ services:
       CORS_ORIGINS: "*"
       MUJOCO_GL: egl
       PYOPENGL_PLATFORM: egl
+      TORCH_ACCELERATOR: cuda
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics
-      GDINO_DEVICE: auto
+      GDINO_DEVICE: cuda
       GDINO_PROMPT_DEFAULT: person . human . survivor . human silhouette
       GDINO_CAMERA_DEFAULT: robot_pov
       GDINO_BOX_THRESHOLD: "0.12"
       GDINO_TEXT_THRESHOLD: "0.12"
-      GDINO_WHITE_MIN_CHANNEL: "170"
-      GDINO_WHITE_MAX_SPREAD: "60"
-      GDINO_WHITE_MIN_RATIO: "0.03"
+      GDINO_WHITE_MIN_CHANNEL: "155"
+      GDINO_WHITE_MAX_SPREAD: "85"
+      GDINO_WHITE_MIN_RATIO: "0.015"
       GDINO_DEBUG_DIR: "/tmp/dino_debug"
+      GDINO_LOCAL_DIR: /modelSetUp/groundingDino/weights
+      GDINO_HF_SUBFOLDER: ""
       GDINO_HF_MODEL: LeBabyOx/dino-cave-survivor
-      GDINO_HF_SUBFOLDER: checkpoint_epoch_8
+      QWEN25VL_MODEL_ID: Qwen/Qwen2.5-VL-2B-Instruct
+      QWEN25VL_LOCAL_DIR: /modelSetUp/qwen25vl
+      QWEN25VL_DEVICE: cuda
       HF_TOKEN: ${HF_TOKEN:-}
       HUGGINGFACE_HUB_TOKEN: ${HF_TOKEN:-}
       WHISPER_MODEL: base
-      WHISPER_DEVICE: auto
+      WHISPER_DEVICE: cuda
       WHISPER_EMIT_PROB: "0.75"
       WHISPER_MIN_INTERVAL_SEC: "2.0"
       WHISPER_MAX_INTERVAL_SEC: "6.0"
@@ -39,28 +46,22 @@ services:
     volumes:
       - ./learning:/vendor_rl:ro
       - ./cave-gen/cave_env:/cave_assets:ro
+      - ./modelSetUp:/modelSetUp
       - hf_cache:/root/.cache/huggingface
     ports:
       - "${HEXY_API_PORT:-8000}:8000"
     gpus: all
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
-      start_period: 5s
     restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       args:
-        VITE_HEXY_BE_URL: ""
+        VITE_HEXY_BE_URL: "http://localhost:8000"
     image: hexy-frontend:latest
     container_name: hexy-frontend
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     ports:
       - "${HEXY_WEB_PORT:-8080}:80"
     restart: unless-stopped

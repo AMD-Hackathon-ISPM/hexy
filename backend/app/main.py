@@ -6,6 +6,7 @@ import logging
 import math
 import os
 import tempfile
+import json
 from concurrent.futures import ThreadPoolExecutor
 import threading
 import time
@@ -19,7 +20,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .grounding_dino_service import GroundingDinoService
+from .agent_prompt import get_agent_prompt
 from .mujoco_sim import MujocoSimulator, MujocoState
+from .qwen25vl_service import Qwen25VlRequest, Qwen25VlService
 from .whisper_stream import stream_transcriptions
 
 
@@ -109,6 +112,8 @@ _simulator_error: Exception | None = None
 _dino_service: GroundingDinoService | None = None
 _dino_error: Exception | None = None
 _render_executor = ThreadPoolExecutor(max_workers=1)
+_qwen_service: Qwen25VlService | None = None
+_qwen_error: Exception | None = None
 
 
 class DinoDebugCapture:
@@ -282,6 +287,21 @@ def _get_dino_service() -> GroundingDinoService:
         _dino_error = exc
         raise
     return _dino_service
+
+
+def _get_qwen_service() -> Qwen25VlService:
+    global _qwen_service, _qwen_error
+    if _qwen_service is not None:
+        return _qwen_service
+    if _qwen_error is not None:
+        raise _qwen_error
+
+    try:
+        _qwen_service = Qwen25VlService()
+    except Exception as exc:  # pragma: no cover - runtime dependency
+        _qwen_error = exc
+        raise
+    return _qwen_service
 
 
 app = FastAPI(title="Hexy Backend", version="0.1.0")
@@ -485,9 +505,33 @@ if cors_origins:
     )
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+@app.on_event("startup")
+def warm_models() -> None:
+    try:
+        _get_dino_service().ensure_model_async()
+    except Exception:
+        logger.exception("[dino] warmup failed")
+    try:
+        _get_qwen_service().ensure_model_async()
+    except Exception:
+        logger.exception("[qwen25vl] warmup failed")
+
+
+@app.get("/agent/prompt")
+def agent_prompt() -> dict[str, str]:
+    return {"prompt": get_agent_prompt()}
+
+
+@app.get("/agent/status")
+def agent_status() -> dict[str, object]:
+    try:
+        qwen = _get_qwen_service()
+        if qwen._load_error is not None:  # type: ignore[attr-defined]
+            return {"status": "error", "detail": str(qwen._load_error)}
+        status = "ready" if qwen.is_ready else "loading"
+        return {"status": status}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
 
 
 @app.post(
@@ -545,6 +589,18 @@ class MujocoStepRequest(BaseModel):
     ctrl: list[float] | None = None
     n_steps: int = 1
     key: str | None = None
+
+
+class AgentRespondRequest(BaseModel):
+    instruction: str
+    detections: list[dict[str, object]] | None = None
+    audio_transcript: str | None = None
+    audio_direction: str | None = None
+    audio_distance_m: float | None = None
+    image_base64: str | None = None
+    max_new_tokens: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
 
 
 def _foot_target_for_key(
@@ -720,6 +776,40 @@ def mujoco_step(request: MujocoStepRequest) -> MujocoState:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/agent/respond", responses={503: {"model": ErrorResponse}, 400: {"model": ErrorResponse}})
+def agent_respond(request: AgentRespondRequest) -> dict[str, object]:
+    try:
+        logger.info("[agent] respond instruction_len=%d", len(request.instruction))
+        qwen = _get_qwen_service()
+        system_prompt = get_agent_prompt()
+        user_payload = {
+            "instruction": request.instruction,
+            "detections": request.detections or [],
+            "audio": {
+                "transcript": request.audio_transcript,
+                "direction": request.audio_direction,
+                "distance_m": request.audio_distance_m,
+            },
+        }
+        user_text = json.dumps(user_payload, ensure_ascii=True)
+        payload = Qwen25VlRequest(
+            system_prompt=system_prompt,
+            user_prompt=user_text,
+            image_b64=request.image_base64,
+            max_new_tokens=request.max_new_tokens or 256,
+            temperature=request.temperature or 0.2,
+            top_p=request.top_p or 0.9,
+        )
+        return qwen.infer(payload)
+    except RuntimeError as exc:
+        if "loading" in str(exc).lower():
+            return {"text": "Model loading... try again in a moment.", "json": None, "status": "loading"}
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("[agent] respond failed")
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 

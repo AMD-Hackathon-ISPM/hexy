@@ -65,35 +65,41 @@ RENDER_SEED_START = 1000    # Base RNG seed for episode randomisation
 PERSON_PRESENT_RATE = 0.85  # Positive samples where survivors should be visible
 
 # ── Base cave geometry ──────────────────────────────────────────────────────
-INNER_RADIUS   = 2.8    # Half-width of corridor (metres)
-CAVE_HEIGHT    = 3.8    # Floor-to-ceiling height at arch peak (metres)
-WALL_THICKNESS = 1.3    # Outer shell thickness for visual depth (metres)
+ROOM_MODE    = True     # Square cavern (no corridors)
+ROOM_HALF_SIZE = 6.0    # Half-width of square cavern (metres)
+ROOM_HEIGHT    = 2.4    # Ceiling height (metres)
+
+INNER_RADIUS   = 1.2    # Half-width of corridor (metres)
+CAVE_HEIGHT    = 2.2    # Floor-to-ceiling height at arch peak (metres)
+WALL_THICKNESS = 0.8    # Outer shell thickness for visual depth (metres)
 FLOOR_Z        = 0.0    # Z elevation of flat ground plane
 
 # ── Organic wall noise ──────────────────────────────────────────────────────
 NOISE_SEED       = 42
 NOISE_AMP        = 0.70
 STALACTITE_AMP   = 0.58
-WALL_VARIATION   = 0.35
-HEIGHT_VARIATION = 0.30
+WALL_VARIATION   = 0.25
+HEIGHT_VARIATION = 0.22
 
 # ── Entrance / exit widening ────────────────────────────────────────────────
-ENTRANCE_MULT     = 1.65
-EXIT_MULT         = 1.50
-TRANSITION_SLICES = 12
+ENTRANCE_MULT     = 1.00
+EXIT_MULT         = 1.00
+TRANSITION_SLICES = 1
 
 # ── Mesh resolution ─────────────────────────────────────────────────────────
 N_PROFILE  = 42
 SWEEP_STEP = 0.20
 
 # ── Rock obstacles ──────────────────────────────────────────────────────────
-N_ROCKS          = 18       # Number of random rock clusters placed in cave
+N_ROCKS          = 0        # Number of random rock clusters placed in cave
 ROCK_MIN_SIZE    = 0.15     # Minimum rock half-extent (metres)
-ROCK_MAX_SIZE    = 0.55     # Maximum rock half-extent (metres)
+ROCK_MAX_SIZE    = 0.35     # Maximum rock half-extent (metres)
 ROCK_CLEAR_ZONE  = 0.80     # Clear zone fraction near path centre (no rocks)
 
 # ── Survivor / human parameters ─────────────────────────────────────────────
-MAX_SURVIVORS     = 3       # Maximum survivors per episode
+MAX_SURVIVORS     = 12      # Maximum survivors per episode
+SURVIVOR_SCALE    = 0.58    # Size scale for survivor geometry
+MIN_SURVIVORS     = 2       # Minimum survivors when present
 SURVIVOR_POSES    = ["lying", "sitting", "slumped"]
 MIN_CLEARANCE     = 1.2     # Minimum metres from path centre for survivors
 VISIBILITY_BANDS  = ["low", "medium", "high"]
@@ -102,8 +108,8 @@ SURVIVOR_VIEW_DISTANCE_MAX = 3.2
 SURVIVOR_VIEW_YAW_JITTER_DEG = 3.0
 
 # ── Maze waypoints (top-down, metres) ───────────────────────────────────────
-# Robot spawn (camera viewpoint)
-ROBOT_SPAWN = (0.0, 2.5, 0.32)
+# Robot spawn — inside the cave, along the first corridor segment
+ROBOT_SPAWN = (0.0, 0.0, 0.32)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -163,24 +169,34 @@ def low_freq_vary(x: float, y: float, seed: int = 0) -> float:
 # ═══════════════════════════════════════════════════════════════════════════
 #  SECTION 2 — PATH UTILITIES
 # ═══════════════════════════════════════════════════════════════════════════
-def generate_maze_waypoints(seed: int, n_points=20):
+def generate_maze_waypoints(seed: int, n_points=8):
+    """Compact cave path bounded to a ~20x20 m square — no open-sky outside zone."""
     rng = np.random.default_rng(seed)
+    BOUND = 6.0  # keep every waypoint within ±6 m from origin
 
     pts = []
     pos = np.array([0.0, 0.0])
     direction = np.array([1.0, 0.0])
 
     for _ in range(n_points):
-        angle = rng.uniform(-0.8, 0.8)
+        angle = rng.uniform(-0.7, 0.7)
         rot = np.array([
             [np.cos(angle), -np.sin(angle)],
             [np.sin(angle),  np.cos(angle)]
         ])
         direction = rot @ direction
 
-        step = rng.uniform(3.0, 8.0)
-        pos = pos + direction * step
-        pts.append((pos[0], pos[1]))
+        step = rng.uniform(1.5, 3.0)
+        next_pos = pos + direction * step
+
+        # Reflect off boundary so the cave stays inside the square
+        for ax in range(2):
+            if abs(next_pos[ax]) > BOUND:
+                direction[ax] = -direction[ax]
+                next_pos = pos + direction * step
+
+        pos = next_pos.copy()
+        pts.append((float(pos[0]), float(pos[1])))
 
     return pts
 
@@ -472,6 +488,34 @@ def write_binary_stl(triangles: list, filepath: str) -> None:
     print(f"  ✓  {len(triangles):>7,} tris  →  {filepath}  ({kb:.0f} KB)")
 
 
+def generate_room_mesh(half_size: float, height: float) -> list:
+    """Generate a simple square cavern mesh (walls + ceiling)."""
+    x0, x1 = -half_size, half_size
+    y0, y1 = -half_size, half_size
+    z0, z1 = FLOOR_Z, FLOOR_Z + height
+
+    # Each face is two triangles.
+    faces = [
+        # +Y wall
+        [(x0, y1, z0), (x1, y1, z0), (x1, y1, z1)],
+        [(x0, y1, z0), (x1, y1, z1), (x0, y1, z1)],
+        # -Y wall
+        [(x1, y0, z0), (x0, y0, z0), (x0, y0, z1)],
+        [(x1, y0, z0), (x0, y0, z1), (x1, y0, z1)],
+        # +X wall
+        [(x1, y1, z0), (x1, y0, z0), (x1, y0, z1)],
+        [(x1, y1, z0), (x1, y0, z1), (x1, y1, z1)],
+        # -X wall
+        [(x0, y0, z0), (x0, y1, z0), (x0, y1, z1)],
+        [(x0, y0, z0), (x0, y1, z1), (x0, y0, z1)],
+        # Ceiling
+        [(x0, y0, z1), (x1, y0, z1), (x1, y1, z1)],
+        [(x0, y0, z1), (x1, y1, z1), (x0, y1, z1)],
+    ]
+
+    return [[np.array(v0), np.array(v1), np.array(v2)] for v0, v1, v2 in faces]
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  MODULE 1 EXTENSION — ROCK OBSTACLE GENERATOR
 # ═══════════════════════════════════════════════════════════════════════════
@@ -541,6 +585,37 @@ def generate_rocks(path_points: list, rng: np.random.Generator,
     return rocks
 
 
+def generate_rocks_room(rng: np.random.Generator, n_rocks: int = N_ROCKS) -> List[RockObstacle]:
+    rocks = []
+    if n_rocks <= 0:
+        return rocks
+    margin = 1.0
+    attempts = 0
+    while len(rocks) < n_rocks and attempts < n_rocks * 40:
+        attempts += 1
+        sa = rng.uniform(ROCK_MIN_SIZE, ROCK_MAX_SIZE)
+        sb = rng.uniform(ROCK_MIN_SIZE, ROCK_MAX_SIZE)
+        sc = rng.uniform(ROCK_MIN_SIZE, ROCK_MAX_SIZE * 0.7)
+        px = rng.uniform(-ROOM_HALF_SIZE + margin, ROOM_HALF_SIZE - margin)
+        py = rng.uniform(-ROOM_HALF_SIZE + margin, ROOM_HALF_SIZE - margin)
+        pz = FLOOR_Z + sc
+        euler = (0.0, 0.0, float(rng.uniform(0, math.pi)))
+        candidate = RockObstacle(
+            pos=(float(px), float(py), float(pz)),
+            size=(float(sa), float(sb), float(sc)),
+            euler=euler,
+            name=f"rock_{len(rocks):03d}",
+        )
+        if any(
+            math.hypot(candidate.pos[0] - rock.pos[0], candidate.pos[1] - rock.pos[1])
+            < (max(candidate.size) + max(rock.size) + 0.6)
+            for rock in rocks
+        ):
+            continue
+        rocks.append(candidate)
+    return rocks
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  MODULE 2 — HUMAN / SURVIVOR GENERATOR
 # ═══════════════════════════════════════════════════════════════════════════
@@ -587,8 +662,9 @@ def _make_survivor_geoms(root: np.ndarray, pose: str,
       slumped — torso ~30° from floor, one arm extended, legs splayed
     """
     geoms: List[dict] = []
-    rgba_skin = "1.00 0.82 0.68 1.0"
-    prefix    = f"surv{sid}"
+    rgba_skin = "0.95 0.95 0.95 1.0"
+    prefix = f"surv{sid}"
+    s = SURVIVOR_SCALE
 
     yaw_deg = float(rng.uniform(0.0, 360.0))   # random body facing direction
     yaw_rad = math.radians(yaw_deg)
@@ -603,8 +679,8 @@ def _make_survivor_geoms(root: np.ndarray, pose: str,
         geoms.append({
             "name":  f"{prefix}_{name}",
             "type":  gtype,
-            "pos":   (lx, ly, pos_local[2]),
-            "size":  size,
+            "pos":   (lx * s, ly * s, pos_local[2] * s),
+            "size":  tuple(v * s for v in size),
             "euler": (euler_local[0],
                       euler_local[1],
                       euler_local[2] + yaw_deg),
@@ -655,21 +731,21 @@ def _make_survivor_geoms(root: np.ndarray, pose: str,
 
 
 SURVIVOR_ROOT_Z = {
-    "lying":  FLOOR_Z + 0.05,
-    "sitting": FLOOR_Z + 0.35,
-    "slumped": FLOOR_Z + 0.15,
+    "lying":  FLOOR_Z + 0.05 * SURVIVOR_SCALE,
+    "sitting": FLOOR_Z + 0.35 * SURVIVOR_SCALE,
+    "slumped": FLOOR_Z + 0.15 * SURVIVOR_SCALE,
 }
 
 SURVIVOR_FOOTPRINT_RADIUS = {
-    "lying":  1.05,
-    "sitting": 0.55,
-    "slumped": 0.85,
+    "lying":  1.05 * SURVIVOR_SCALE,
+    "sitting": 0.55 * SURVIVOR_SCALE,
+    "slumped": 0.85 * SURVIVOR_SCALE,
 }
 
 SURVIVOR_POSE_HEIGHT = {
-    "lying":  0.35,
-    "sitting": 0.95,
-    "slumped": 0.60,
+    "lying":  0.35 * SURVIVOR_SCALE,
+    "sitting": 0.95 * SURVIVOR_SCALE,
+    "slumped": 0.60 * SURVIVOR_SCALE,
 }
 
 SURVIVOR_WALL_MARGIN = 0.18
@@ -963,6 +1039,38 @@ def place_survivors(path_points: list,
     return survivors
 
 
+def place_survivors_room(rng: np.random.Generator,
+                         rocks: List[RockObstacle],
+                         n_survivors: int) -> List[Survivor]:
+    survivors: List[Survivor] = []
+    wall_margin = 1.0
+    for sid in range(n_survivors):
+        pose = str(rng.choice(SURVIVOR_POSES))
+        root = None
+        for _ in range(120):
+            px = rng.uniform(-ROOM_HALF_SIZE + wall_margin, ROOM_HALF_SIZE - wall_margin)
+            py = rng.uniform(-ROOM_HALF_SIZE + wall_margin, ROOM_HALF_SIZE - wall_margin)
+            pz = SURVIVOR_ROOT_Z[pose]
+            candidate = np.array([px, py, pz], dtype=float)
+            if not _rock_overlap_clear(candidate, pose, rocks):
+                continue
+            root = candidate
+            break
+        if root is None:
+            continue
+
+        meta = SurvivorMetadata(
+            survivor_id=sid,
+            survivor_position=(float(root[0]), float(root[1]), float(root[2])),
+            pose=pose,
+            visibility_level="high",
+            occlusion_percentage=0.0,
+        )
+        geoms = _make_survivor_geoms(root, pose, sid, rng)
+        survivors.append(Survivor(meta=meta, geoms=geoms))
+    return survivors
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  MODULE 1 — MUJOCO XML WRITER  (extended with rocks + survivors)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1023,11 +1131,17 @@ def write_mujoco_xml(inner_stl: str, outer_stl: str, xml_path: str,
     ex, ey, _ = get_entrance_coordinate(path_points)
     xx, xy  = float(path_points[-1][0]), float(path_points[-1][1])
 
-    n = len(path_points)
-    def lp(frac):
-        return path_points[min(int(frac * n), n - 1)]
-    l1, l2, l3 = lp(0.25), lp(0.50), lp(0.75)
-    lh = CAVE_HEIGHT * 0.80
+    if ROOM_MODE:
+        l1 = np.array([ ROOM_HALF_SIZE * 0.5,  ROOM_HALF_SIZE * 0.4, 0.0])
+        l2 = np.array([-ROOM_HALF_SIZE * 0.4,  ROOM_HALF_SIZE * 0.4, 0.0])
+        l3 = np.array([ 0.0, -ROOM_HALF_SIZE * 0.5, 0.0])
+        lh = ROOM_HEIGHT * 0.85
+    else:
+        n = len(path_points)
+        def lp(frac):
+            return path_points[min(int(frac * n), n - 1)]
+        l1, l2, l3 = lp(0.25), lp(0.50), lp(0.75)
+        lh = CAVE_HEIGHT * 0.80
 
     # ── Per-episode lighting variation ────────────────────────────────────
     rng_l  = np.random.default_rng(light_seed)
@@ -1036,25 +1150,45 @@ def write_mujoco_xml(inner_stl: str, outer_stl: str, xml_path: str,
         base_d *= 0.90
     elif difficulty == "easy":
         base_d *= 1.10
+
     warm   = float(rng_l.uniform(0.80, 1.00))   # warm tint
     cool   = float(rng_l.uniform(0.75, 0.95))   # cool tint
+
     # Occasionally add a dark area (simulates deep shadow)
     shadow_mult = float(rng_l.uniform(0.80, 1.0))
 
-    # ── Rock geom XML ─────────────────────────────────────────────────────
-    rock_xml_lines = []
-    for rock in rocks:
-        px, py, pz   = rock.pos
-        sa, sb, sc   = rock.size
-        ex0, ey0, ez0 = rock.euler
-        rock_xml_lines.append(
-            f'    <geom name="{rock.name}" type="ellipsoid" '
-            f'pos="{px:.3f} {py:.3f} {pz:.3f}" '
-            f'size="{sa:.3f} {sb:.3f} {sc:.3f}" '
-            f'euler="{math.degrees(ex0):.1f} {math.degrees(ey0):.1f} {math.degrees(ez0):.1f}" '
-            f'material="cave_rock" contype="1" conaffinity="1"/>'
-        )
-    rock_xml = "\n".join(rock_xml_lines)
+    room_wall_xml = ""
+    if ROOM_MODE:
+        wall_t = 0.20
+        half = ROOM_HALF_SIZE
+        wall_h = ROOM_HEIGHT * 0.5
+        zc = FLOOR_Z + wall_h
+        y_edge = half - wall_t * 0.5
+        x_edge = half - wall_t * 0.5
+        ceil_z = FLOOR_Z + ROOM_HEIGHT - wall_t * 0.5
+
+        room_wall_xml = f"""
+        <!-- ── Room collision walls ─────────────────────────────── -->
+        <geom name=\"room_wall_y_pos\" type=\"box\" pos=\"0 {y_edge:.3f} {zc:.3f}\"
+            size=\"{half:.3f} {wall_t * 0.5:.3f} {wall_h:.3f}\" material=\"cave_rock\"
+            contype=\"1\" conaffinity=\"1\"/>
+        ...
+    """
+
+        # ── Rock geom XML ─────────────────────────────────────────────────────
+        rock_xml_lines = []
+        for rock in rocks:
+                px, py, pz   = rock.pos
+                sa, sb, sc   = rock.size
+                ex0, ey0, ez0 = rock.euler
+                rock_xml_lines.append(
+                        f'    <geom name="{rock.name}" type="ellipsoid" '
+                        f'pos="{px:.3f} {py:.3f} {pz:.3f}" '
+                        f'size="{sa:.3f} {sb:.3f} {sc:.3f}" '
+                        f'euler="{math.degrees(ex0):.1f} {math.degrees(ey0):.1f} {math.degrees(ez0):.1f}" '
+                        f'material="cave_rock" contype="1" conaffinity="1"/>'
+                )
+        rock_xml = "\n".join(rock_xml_lines)
 
     # ── Survivor body XML ─────────────────────────────────────────────────
     surv_xml_lines = []
@@ -1111,63 +1245,49 @@ def write_mujoco_xml(inner_stl: str, outer_stl: str, xml_path: str,
   <option gravity="0 0 -9.81" timestep="0.002" integrator="RK4" cone="pyramidal"/>
 
   <visual>
-    <rgba haze="0.06 0.05 0.04 1"/>
+    <rgba haze="0.10 0.04 0.03 1"/>
     <quality shadowsize="4096"/>
     <map stiffness="100" shadowscale="0.4"/>
     <global fovy="65"/>
   </visual>
 
   <asset>
-    <mesh name="cave_inner" file="{inner_stl}" scale="1 1 1"/>
-    <mesh name="cave_outer" file="{outer_stl}" scale="1 1 1"/>
+        <mesh name="cave_inner" file="{inner_stl}" scale="1 1 1"/>
 
-    <material name="cave_rock"
-      rgba="0.38 0.34 0.22 1.0" specular="0.06" shininess="0.02" reflectance="0.01"/>
-    <material name="cave_floor"
-      rgba="0.31 0.27 0.20 1.0" specular="0.03" shininess="0.008"/>
-    <material name="entry_mat"
-      rgba="0.15 0.72 0.25 0.85" specular="0.2" shininess="0.1"/>
-    <material name="exit_mat"
-      rgba="0.80 0.18 0.15 0.85" specular="0.2" shininess="0.1"/>
-
-    <texture type="skybox" builtin="flat"
-      rgb1="0.03 0.03 0.05" rgb2="0.01 0.01 0.02"
-      width="512" height="512"/>
+        <material name="cave_rock"
+            rgba="0.60 0.22 0.18 1.0" specular="0.06" shininess="0.03" reflectance="0.01"/>
+        <material name="cave_floor"
+            rgba="0.46 0.18 0.16 1.0" specular="0.03" shininess="0.008"/>
   </asset>
 
   <worldbody>
 
-    <!-- ── Lighting (per-episode randomised brightness) ─────────── -->
-    <light name="sun"
-      pos="{ex + 2.0:.1f} {ey - 5.0:.1f} 30"
-      dir="0.0 0.2 -1"
-      diffuse="{base_d * warm:.3f} {base_d * 0.92:.3f} {base_d * cool:.3f}"
-      specular="0.05 0.05 0.05"
-      castshadow="true"/>
-
+    <!-- ── Cave interior lighting ────────────────────────────────── -->
     <light name="fill_0"
       pos="{l1[0]:.1f} {l1[1]:.1f} {lh:.1f}"
-      diffuse="{base_d * 0.90 * shadow_mult:.3f} {base_d * 0.82 * shadow_mult:.3f} {base_d * 0.68 * shadow_mult:.3f}"
+      diffuse="{base_d * 1.05 * shadow_mult:.3f} {base_d * 0.72 * shadow_mult:.3f} {base_d * 0.60 * shadow_mult:.3f}"
       castshadow="false"/>
     <light name="fill_1"
       pos="{l2[0]:.1f} {l2[1]:.1f} {lh:.1f}"
-      diffuse="{base_d * 0.82:.3f} {base_d * 0.75:.3f} {base_d * 0.60:.3f}"
+      diffuse="{base_d * 0.95:.3f} {base_d * 0.65:.3f} {base_d * 0.54:.3f}"
       castshadow="false"/>
     <light name="fill_2"
       pos="{l3[0]:.1f} {l3[1]:.1f} {lh:.1f}"
-      diffuse="{base_d * 0.76:.3f} {base_d * 0.70:.3f} {base_d * 0.56:.3f}"
+      diffuse="{base_d * 0.88:.3f} {base_d * 0.60:.3f} {base_d * 0.50:.3f}"
       castshadow="false"/>
-    <light name="entry_torch"
-      pos="{ex:.1f} {ey + 3.0:.1f} 1.8"
-      diffuse="{base_d * 1.20:.3f} {base_d * 0.88:.3f} {base_d * 0.45:.3f}"
+    <light name="fill_3"
+      pos="{sx:.1f} {sy:.1f} {lh:.1f}"
+      diffuse="{base_d * 1.10:.3f} {base_d * 0.75:.3f} {base_d * 0.62:.3f}"
       castshadow="false"/>
 
     <!-- ── Ground plane ─────────────────────────────────────────── -->
-    <geom name="ground" type="plane"
-      pos="0 0 {FLOOR_Z:.3f}" size="80 80 0.1"
+        <geom name="ground" type="plane"
+            pos="0 0 {FLOOR_Z:.3f}" size="{ROOM_HALF_SIZE * 2:.1f} {ROOM_HALF_SIZE * 2:.1f} 0.1"
       material="cave_floor"
       contype="1" conaffinity="1"
       friction="1.0 0.005 0.0001"/>
+
+{room_wall_xml}
 
     <!-- ── Cave inner wall (collision + visual) ──────────────────── -->
     <geom name="cave_wall_inner" type="mesh" mesh="cave_inner"
@@ -1175,52 +1295,12 @@ def write_mujoco_xml(inner_stl: str, outer_stl: str, xml_path: str,
       contype="1" conaffinity="1"
       friction="0.85 0.005 0.0001"/>
 
-    <!-- ── Cave outer shell (visual only) ───────────────────────── -->
-    <geom name="cave_wall_outer" type="mesh" mesh="cave_outer"
-      material="cave_rock" contype="0" conaffinity="0"/>
-
     <!-- ── Rock obstacles ───────────────────────────────────────── -->
 {rock_xml}
 
     <!-- ── Survivors ────────────────────────────────────────────── -->
 {surv_xml}
 {dataset_camera_xml}
-
-    <!-- ── Entrance marker ─────────────────────────────────────── -->
-    <body name="entrance_marker" pos="{ex:.2f} {ey:.2f} 0">
-      <geom name="entry_pillar_L" type="box"
-        pos="{-INNER_RADIUS * ENTRANCE_MULT * 0.85:.2f} 0 1.0"
-        size="0.12 0.12 1.0" material="entry_mat"
-        contype="0" conaffinity="0"/>
-      <geom name="entry_pillar_R" type="box"
-        pos="{ INNER_RADIUS * ENTRANCE_MULT * 0.85:.2f} 0 1.0"
-        size="0.12 0.12 1.0" material="entry_mat"
-        contype="0" conaffinity="0"/>
-      <geom name="entry_lintel" type="box"
-        pos="0 0 {CAVE_HEIGHT * ENTRANCE_MULT * 0.82:.2f}"
-        size="{INNER_RADIUS * ENTRANCE_MULT:.2f} 0.12 0.12"
-        material="entry_mat"
-        contype="0" conaffinity="0"/>
-      <site name="entrance_site" pos="0 0 1.0" size="0.05"/>
-    </body>
-
-    <!-- ── Exit marker ──────────────────────────────────────────── -->
-    <body name="exit_marker" pos="{xx:.2f} {xy:.2f} 0">
-      <geom name="exit_pillar_L" type="box"
-        pos="{-INNER_RADIUS * EXIT_MULT * 0.85:.2f} 0 1.0"
-        size="0.12 0.12 1.0" material="exit_mat"
-        contype="0" conaffinity="0"/>
-      <geom name="exit_pillar_R" type="box"
-        pos="{ INNER_RADIUS * EXIT_MULT * 0.85:.2f} 0 1.0"
-        size="0.12 0.12 1.0" material="exit_mat"
-        contype="0" conaffinity="0"/>
-      <geom name="exit_lintel" type="box"
-        pos="0 0 {CAVE_HEIGHT * EXIT_MULT * 0.82:.2f}"
-        size="{INNER_RADIUS * EXIT_MULT:.2f} 0.12 0.12"
-        material="exit_mat"
-        contype="0" conaffinity="0"/>
-      <site name="exit_site" pos="0 0 1.0" size="0.05"/>
-    </body>
 
     <!-- ── Robot / camera body ──────────────────────────────────── -->
     <!--  Replace with your full humanoid MJCF.                       -->
@@ -1329,6 +1409,14 @@ def _sample_camera_pose(path_points: list,
     return pt, yaw
 
 
+def _sample_camera_pose_room(rng: np.random.Generator) -> Tuple[np.ndarray, float]:
+    px = rng.uniform(-ROOM_HALF_SIZE * 0.6, ROOM_HALF_SIZE * 0.6)
+    py = rng.uniform(-ROOM_HALF_SIZE * 0.6, ROOM_HALF_SIZE * 0.6)
+    pz = FLOOR_Z + float(rng.uniform(0.55, 0.85))
+    yaw = float(rng.uniform(0.0, 360.0))
+    return np.array([px, py, pz], dtype=float), yaw
+
+
 def _yaw_towards(src: np.ndarray, dst: np.ndarray) -> float:
     """Yaw convention used by the robot freejoint camera."""
     delta = np.asarray(dst, dtype=float) - np.asarray(src, dtype=float)
@@ -1388,6 +1476,25 @@ def _sample_camera_pose_for_survivors(path_points: list,
     cam_pos += right_dir * camera_lateral
     cam_pos[2] = FLOOR_Z + float(rng.uniform(0.55, 0.75))
 
+    aim_point = target.copy()
+    aim_point[2] = FLOOR_Z + 0.45
+    yaw = _yaw_towards(cam_pos, aim_point)
+    yaw += float(rng.uniform(-SURVIVOR_VIEW_YAW_JITTER_DEG, SURVIVOR_VIEW_YAW_JITTER_DEG))
+    return cam_pos, yaw, aim_point
+
+
+def _sample_camera_pose_for_survivors_room(survivors: List[Survivor],
+                                           rng: np.random.Generator) -> Tuple[np.ndarray, float, np.ndarray]:
+    if not survivors:
+        cam_pos, cam_yaw = _sample_camera_pose_room(rng)
+        yaw_rad = math.radians(cam_yaw - 180.0)
+        target = cam_pos + np.array([math.cos(yaw_rad), math.sin(yaw_rad), 0.0]) * 4.0
+        target[2] = FLOOR_Z + 0.55
+        return cam_pos, cam_yaw, target
+
+    target = np.array(survivors[int(rng.integers(0, len(survivors)))].meta.survivor_position)
+    cam_pos, _ = _sample_camera_pose_room(rng)
+    cam_pos[2] = FLOOR_Z + float(rng.uniform(0.55, 0.85))
     aim_point = target.copy()
     aim_point[2] = FLOOR_Z + 0.45
     yaw = _yaw_towards(cam_pos, aim_point)
@@ -1465,9 +1572,13 @@ def run_dataset_pipeline(n_episodes: int = N_EPISODES,
     # Pre-build the base mesh (expensive — done once) ──────────────────────
     print("\n[Dataset]  Building base cave path & meshes (once)…")
     base_seed = seed_start  # Use seed_start for consistent base mesh
-    waypoints = generate_maze_waypoints(base_seed)
-    base_path_points = build_smooth_path(waypoints, step=SWEEP_STEP)
-    base_frames = compute_frames(base_path_points)
+    if ROOM_MODE:
+        base_path_points = [np.array([0.0, 0.0, FLOOR_Z], dtype=float)]
+        base_frames = [(np.array([0.0, 1.0, 0.0]), np.array([1.0, 0.0, 0.0]), np.array([0.0, 0.0, 1.0]))]
+    else:
+        waypoints = generate_maze_waypoints(base_seed)
+        base_path_points = build_smooth_path(waypoints, step=SWEEP_STEP)
+        base_frames = compute_frames(base_path_points)
 
     inner_stl = f"cave_inner_seed_{base_seed}.stl"
     outer_stl = f"cave_outer_seed_{base_seed}.stl"
@@ -1476,26 +1587,31 @@ def run_dataset_pipeline(n_episodes: int = N_EPISODES,
 
     if not (os.path.exists(inner_path) and os.path.exists(outer_path)):
         print("         Generating cave STL meshes…")
-        inner_tris = generate_cave_mesh(
-            base_path_points, base_frames,
-            extra_offset=0.0,
-            seed_offset=base_seed,
-            inward_normals=True,
-            open_entrance=True,
-            open_exit=True
-        )
+        if ROOM_MODE:
+            inner_tris = generate_room_mesh(ROOM_HALF_SIZE, ROOM_HEIGHT)
+            outer_tris = None
+        else:
+            inner_tris = generate_cave_mesh(
+                base_path_points, base_frames,
+                extra_offset=0.0,
+                seed_offset=base_seed,
+                inward_normals=True,
+                open_entrance=False,
+                open_exit=False
+            )
 
-        outer_tris = generate_cave_mesh(
-            base_path_points, base_frames,
-            extra_offset=WALL_THICKNESS,
-            seed_offset=base_seed + 999,
-            inward_normals=False,
-            open_entrance=False,
-            open_exit=False
-        )
+            outer_tris = generate_cave_mesh(
+                base_path_points, base_frames,
+                extra_offset=WALL_THICKNESS,
+                seed_offset=base_seed + 999,
+                inward_normals=False,
+                open_entrance=False,
+                open_exit=False
+            )
 
         write_binary_stl(inner_tris, inner_path)
-        write_binary_stl(outer_tris, outer_path)
+        if not ROOM_MODE and outer_tris is not None:
+            write_binary_stl(outer_tris, outer_path)
     else:
         print("         Reusing existing STL meshes.")
 
@@ -1515,32 +1631,34 @@ def run_dataset_pipeline(n_episodes: int = N_EPISODES,
         light_seed = int(rng.integers(0, 99999))
 
         # ── Randomise rocks ────────────────────────────────────────────────
-        if difficulty == "easy":
-            n_rocks = 8
-        elif difficulty == "medium":
-            n_rocks = 18
-        else:
-            n_rocks = 35
-
-        rocks = generate_rocks(path_points, rng, n_rocks=n_rocks, seed_offset=base_seed)
+        n_rocks = 0
+        rocks = generate_rocks_room(rng, n_rocks) if ROOM_MODE else generate_rocks(path_points, rng, n_rocks=n_rocks, seed_offset=base_seed)
         # ── Initial camera pose for survivor placement heuristics ──────────
-        cam_pos, cam_yaw = _sample_camera_pose(path_points, rng)
+        cam_pos, cam_yaw = _sample_camera_pose_room(rng) if ROOM_MODE else _sample_camera_pose(path_points, rng)
         yaw_rad = math.radians(cam_yaw - 180.0)
         cam_target = cam_pos + np.array([math.cos(yaw_rad), math.sin(yaw_rad), 0.0]) * 4.0
         cam_target[2] = FLOOR_Z + 0.55
 
         # ── Randomise survivors ────────────────────────────────────────────
         person_present = bool(rng.random() < PERSON_PRESENT_RATE)
-        n_surv   = int(rng.integers(1, MAX_SURVIVORS + 1)) if person_present else 0
-        survivors = place_survivors(path_points, rocks, rng, n_surv,
-                                    difficulty=difficulty, camera_pos=cam_pos,
-                                    seed_offset=base_seed)
+        n_surv   = int(rng.integers(MIN_SURVIVORS, MAX_SURVIVORS + 1)) if person_present else 0
+        if ROOM_MODE:
+            survivors = place_survivors_room(rng, rocks, n_surv)
+        else:
+            survivors = place_survivors(path_points, rocks, rng, n_surv,
+                                        difficulty=difficulty, camera_pos=cam_pos,
+                                        seed_offset=base_seed)
         n_surv = len(survivors)
         person_present = n_surv > 0
         if person_present:
-            cam_pos, cam_yaw, cam_target = _sample_camera_pose_for_survivors(
-                path_points, survivors, rng, seed_offset=base_seed
-            )
+            if ROOM_MODE:
+                cam_pos, cam_yaw, cam_target = _sample_camera_pose_for_survivors_room(
+                    survivors, rng
+                )
+            else:
+                cam_pos, cam_yaw, cam_target = _sample_camera_pose_for_survivors(
+                    path_points, survivors, rng, seed_offset=base_seed
+                )
 
         # ── Compute visibility (Point C) — refine based on actual camera pose ────
         for surv in survivors:
@@ -1713,49 +1831,67 @@ def main():
         print(f"       {d}/")
 
     # ── Path + frames ─────────────────────────────────────────────────────
-    print("\n[2/7]  Building Catmull-Rom path…")
-    seed = 0  # fixed seed for preview
-    waypoints = generate_maze_waypoints(seed)
+    if ROOM_MODE:
+        print("\n[2/7]  Using square room layout…")
+        path_points = [np.array([0.0, 0.0, FLOOR_Z], dtype=float)]
+        frames = [(np.array([0.0, 1.0, 0.0]), np.array([1.0, 0.0, 0.0]), np.array([0.0, 0.0, 1.0]))]
+        print(f"       room half-size: {ROOM_HALF_SIZE:.1f} m")
+        print(f"       room height: {ROOM_HEIGHT:.1f} m")
+    else:
+        print("\n[2/7]  Building Catmull-Rom path…")
+        seed = 0  # fixed seed for preview
+        waypoints = generate_maze_waypoints(seed)
 
-    path_points = build_smooth_path(waypoints, SWEEP_STEP)
-    frames = compute_frames(path_points)
-    total_len   = sum(float(np.linalg.norm(path_points[i+1] - path_points[i]))
-                      for i in range(len(path_points) - 1))
-    entrance_xyz = get_entrance_coordinate(path_points)
-    print(f"       {len(waypoints)} waypoints → "
-          f"{len(path_points)} samples  (≈ {total_len:.1f} m)")
-    print(f"       entrance path starts at "
-          f"({entrance_xyz[0]:.2f}, {entrance_xyz[1]:.2f}, {entrance_xyz[2]:.2f})")
+        path_points = build_smooth_path(waypoints, SWEEP_STEP)
+        frames = compute_frames(path_points)
+        total_len = sum(float(np.linalg.norm(path_points[i+1] - path_points[i]))
+                        for i in range(len(path_points) - 1))
+        entrance_xyz = get_entrance_coordinate(path_points)
+        print(f"       {len(waypoints)} waypoints → "
+              f"{len(path_points)} samples  (≈ {total_len:.1f} m)")
+        print(f"       entrance path starts at "
+              f"({entrance_xyz[0]:.2f}, {entrance_xyz[1]:.2f}, {entrance_xyz[2]:.2f})")
 
-    print("\n[3/7]  Computing Frenet frames…")
-    frames = compute_frames(path_points)
-    print(f"       {len(frames)} frames")
+        print("\n[3/7]  Computing Frenet frames…")
+        frames = compute_frames(path_points)
+        print(f"       {len(frames)} frames")
 
     # ── Cave meshes ─────────────────────── ────────────────────────────────
     print("\n[4/7]  Generating cave meshes…")
-    inner_tris = generate_cave_mesh(path_points, frames,
-                                    extra_offset=0.0, seed_offset=0,
-                                    inward_normals=True,
-                                    open_entrance=True, open_exit=True)
-    outer_tris = generate_cave_mesh(path_points, frames,
-                                    extra_offset=WALL_THICKNESS, seed_offset=777,
-                                    inward_normals=False,
-                                    open_entrance=False, open_exit=False)
     inner_name = "cave_inner.stl"
     outer_name = "cave_outer.stl"
-    write_binary_stl(inner_tris, os.path.join(MESH_DIR, inner_name))
-    write_binary_stl(outer_tris, os.path.join(MESH_DIR, outer_name))
+    if ROOM_MODE:
+        inner_tris = generate_room_mesh(ROOM_HALF_SIZE, ROOM_HEIGHT)
+        write_binary_stl(inner_tris, os.path.join(MESH_DIR, inner_name))
+    else:
+        inner_tris = generate_cave_mesh(path_points, frames,
+                                        extra_offset=0.0, seed_offset=0,
+                                        inward_normals=True,
+                                        open_entrance=False, open_exit=False)
+        outer_tris = generate_cave_mesh(path_points, frames,
+                                        extra_offset=WALL_THICKNESS, seed_offset=777,
+                                        inward_normals=False,
+                                        open_entrance=False, open_exit=False)
+        outer_name = "cave_outer.stl"
+        write_binary_stl(inner_tris, os.path.join(MESH_DIR, inner_name))
+        write_binary_stl(outer_tris, os.path.join(MESH_DIR, outer_name))
 
     # ── Rock obstacles (demo scene) ───────────────────────────────────────
     print("\n[5/7]  Generating rock obstacles…")
     demo_rng = np.random.default_rng(NOISE_SEED)
-    rocks     = generate_rocks(path_points, demo_rng, N_ROCKS)
+    if ROOM_MODE:
+        rocks = generate_rocks_room(demo_rng, N_ROCKS)
+    else:
+        rocks = generate_rocks(path_points, demo_rng, N_ROCKS)
     print(f"       {len(rocks)} rock geoms placed along path")
 
     # ── Survivors (demo scene) ────────────────────────────────────────────
     print("\n[6/7]  Placing demo survivors…")
-    survivors = place_survivors(path_points, rocks, demo_rng, 2, 
-                                difficulty="medium")
+    if ROOM_MODE:
+        survivors = place_survivors_room(demo_rng, rocks, 5)
+    else:
+        survivors = place_survivors(path_points, rocks, demo_rng, 2,
+                                    difficulty="medium")
     for s in survivors:
         m = s.meta
         print(f"       Survivor {m.survivor_id}: pose={m.pose:8s}  "
@@ -1784,12 +1920,16 @@ def main():
     except Exception as exc:
         print(f"  ✗  Validation error: {exc}")
 
-    # ── Dataset generation ────────────────────────────────────────────────
-    print(f"\n{'─'*70}")
-    print(f"  MODULE 3 — Synthetic Dataset Pipeline")
-    print(f"  Target: {N_EPISODES} episodes  →  {IMAGES_DIR}/  +  {LABELS_DIR}/")
-    print(f"{'─'*70}")
-    run_dataset_pipeline(n_episodes=N_EPISODES, seed_start=RENDER_SEED_START)
+    # ── Dataset generation (skip with --no-dataset) ───────────────────────
+    import sys
+    if "--no-dataset" not in sys.argv:
+        print(f"\n{'─'*70}")
+        print(f"  MODULE 3 — Synthetic Dataset Pipeline")
+        print(f"  Target: {N_EPISODES} episodes  →  {IMAGES_DIR}/  +  {LABELS_DIR}/")
+        print(f"{'─'*70}")
+        run_dataset_pipeline(n_episodes=N_EPISODES, seed_start=RENDER_SEED_START)
+    else:
+        print("\n  Skipping dataset pipeline (--no-dataset).")
 
     # ── Summary ───────────────────────────────────────────────────────────
     print(f"""

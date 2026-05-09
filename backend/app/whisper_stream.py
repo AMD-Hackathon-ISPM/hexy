@@ -63,34 +63,37 @@ class WhisperModel:
         with self._lock:
             if self._model is not None:
                 return
-            import torch
-            import whisper
+            from faster_whisper import WhisperModel as FasterWhisperModel
 
             device = os.getenv("WHISPER_DEVICE", "auto").lower()
             if device == "auto":
-                device = "cuda" if torch.cuda.is_available() else "cpu"
+                try:
+                    import torch
+                    device = "cuda" if torch.cuda.is_available() else "cpu"
+                except Exception:
+                    device = "cpu"
 
             model_name = os.getenv("WHISPER_MODEL", "base")
-            self._model = whisper.load_model(model_name, device=device)
+            model_path = os.getenv("WHISPER_MODEL_PATH")
+            compute_type = "float16" if device == "cuda" else "int8"
+
+            self._model = FasterWhisperModel(
+                model_path or model_name,
+                device=device,
+                compute_type=compute_type,
+            )
             self._device = device
 
     def transcribe(self, audio: np.ndarray) -> str:
         self._ensure_model()
-        import torch
-
         if self._model is None:
             raise RuntimeError("Whisper model failed to load.")
 
-        fp16 = self._device == "cuda"
-        result = self._model.transcribe(
+        segments, _ = self._model.transcribe(
             audio,
             language=os.getenv("WHISPER_LANGUAGE", "en"),
-            fp16=fp16,
-            task="transcribe",
-            verbose=False,
         )
-        text = result.get("text", "") if isinstance(result, dict) else ""
-        return text.strip()
+        return "".join(segment.text for segment in segments).strip()
 
 
 class SyntheticAudioSource:

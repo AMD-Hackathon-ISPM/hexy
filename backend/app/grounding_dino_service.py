@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 import logging
 import os
 import threading
@@ -30,7 +31,10 @@ class GroundingDinoService:
         self._box_threshold = float(os.getenv("GDINO_BOX_THRESHOLD", "0.35"))
         self._text_threshold = float(os.getenv("GDINO_TEXT_THRESHOLD", "0.25"))
         self._hf_model = os.getenv("GDINO_HF_MODEL", "LeBabyOx/dino-cave-survivor")
-        self._hf_subfolder = os.getenv("GDINO_HF_SUBFOLDER", "checkpoint_epoch_8")
+        self._hf_subfolder = os.getenv("GDINO_HF_SUBFOLDER", "")
+        self._hf_local_dir = Path(
+            os.getenv("GDINO_LOCAL_DIR", "/modelSetUp/groundingDino/weights")
+        )
         self._white_min_channel = int(os.getenv("GDINO_WHITE_MIN_CHANNEL", "170"))
         self._white_max_spread = int(os.getenv("GDINO_WHITE_MAX_SPREAD", "60"))
         self._white_min_ratio = float(os.getenv("GDINO_WHITE_MIN_RATIO", "0.03"))
@@ -54,22 +58,83 @@ class GroundingDinoService:
                 return
             try:
                 import torch
-                from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
+                from transformers import (
+                    GroundingDinoImageProcessor,
+                    AutoTokenizer,
+                    GroundingDinoProcessor,
+                    AutoModelForZeroShotObjectDetection,
+                )
 
                 self._device = self._resolve_device()
 
-                self._processor = AutoProcessor.from_pretrained(
-                    self._hf_model,
-                    subfolder=self._hf_subfolder,
+                model_dir = self._hf_local_dir
+                if self._hf_subfolder:
+                    candidate = self._hf_local_dir / self._hf_subfolder
+                    if candidate.exists():
+                        model_dir = candidate
+
+                logger.info("[dino] loading from %s on %s", model_dir, self._device)
+
+                preprocessor_path = model_dir / "preprocessor_config.json"
+                processor_path = model_dir / "processor_config.json"
+                if not preprocessor_path.exists() and processor_path.exists():
+                    preprocessor_path.write_text(
+                        processor_path.read_text(encoding="utf-8"),
+                        encoding="utf-8",
+                    )
+
+                _image_processor = GroundingDinoImageProcessor.from_pretrained(
+                    str(model_dir), local_files_only=True
                 )
+                _tokenizer = AutoTokenizer.from_pretrained(
+                    str(model_dir), local_files_only=True
+                )
+                self._processor = GroundingDinoProcessor(
+                    image_processor=_image_processor, tokenizer=_tokenizer
+                )
+                # Plain load (no torch_dtype / device_map) avoids meta-tensor
+                # issues when accelerate is not installed. Model loads in
+                # float32 which matches the BERT text backbone's internal dtype.
                 self._model = AutoModelForZeroShotObjectDetection.from_pretrained(
-                    self._hf_model,
-                    subfolder=self._hf_subfolder,
+                    str(model_dir),
+                    local_files_only=True,
                 ).to(self._device)
                 self._model.eval()
                 self._torch = torch
+                logger.info("[dino] model ready on %s", self._device)
             except Exception as exc:
+                logger.exception("[dino] load FAILED: %s", exc)
                 self._load_error = exc
+
+    def ensure_model_async(self) -> None:
+        if self._model is not None or self._load_error is not None:
+            return
+        threading.Thread(target=self._ensure_model, daemon=True).start()
+
+    def _whiteish_bbox(self, image: np.ndarray) -> tuple[float, float, float, float, float] | None:
+        if image.size == 0:
+            return None
+        min_ch = image.min(axis=2)
+        max_ch = image.max(axis=2)
+        luma = (
+            0.2126 * image[:, :, 0]
+            + 0.7152 * image[:, :, 1]
+            + 0.0722 * image[:, :, 2]
+        )
+        whiteish = (luma >= self._white_min_channel) & (
+            (max_ch - min_ch) <= self._white_max_spread
+        )
+        ratio = float(whiteish.mean())
+        if ratio < self._white_min_ratio:
+            return None
+        ys, xs = np.where(whiteish)
+        if ys.size == 0 or xs.size == 0:
+            return None
+        x1 = float(xs.min())
+        y1 = float(ys.min())
+        x2 = float(xs.max() + 1)
+        y2 = float(ys.max() + 1)
+        return x1, y1, x2, y2, ratio
 
     @staticmethod
     def _nms(boxes: np.ndarray, scores: np.ndarray, iou_threshold: float = 0.5) -> List[int]:
@@ -97,6 +162,15 @@ class GroundingDinoService:
         return keep
 
     def detect(self, image: np.ndarray, config: DetectionConfig) -> List[dict[str, Any]]:
+        white_bbox = self._whiteish_bbox(image)
+        if white_bbox is not None:
+            x1, y1, x2, y2, ratio = white_bbox
+            return [{
+                "label": "survivor",
+                "confidence": 1.0,
+                "bbox": [x1, y1, x2, y2],
+            }]
+
         self._ensure_model()
         if self._load_error is not None:
             raise RuntimeError(
@@ -131,7 +205,7 @@ class GroundingDinoService:
         labels = result.get("text_labels") or result.get("labels", [])
 
         n = len(boxes) if boxes is not None else 0
-        logger.info("[dino] raw %d detection(s) prompt=%r threshold=%.2f", n, config.prompt, config.box_threshold)
+        # logger.info("[dino] raw %d detection(s) prompt=%r threshold=%.2f", n, config.prompt, config.box_threshold)
 
         if boxes is None or len(boxes) == 0:
             return []
@@ -208,7 +282,7 @@ class GroundingDinoService:
                 "bbox": [x1, y1, x2, y2],
             })
 
-        logger.info("[dino] %d detection(s) after filtering+NMS", len(detections))
+        # logger.info("[dino] %d detection(s) after filtering+NMS", len(detections))
         return detections
 
     @staticmethod

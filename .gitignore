@@ -18,5 +18,10 @@ __pycache__/
 # editors
 .vscode/
 .idea/
-.claude/
+.claude/    
 .dino_debug/
+
+modelSetUp/qwen3vl/
+modelSetUp/qwen25vl/
+modelSetUp/groundingDino/
+cave-gen/cave_env/

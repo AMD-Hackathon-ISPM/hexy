@@ -34,6 +34,10 @@ export function getHealth(): Promise<{ status: string }> {
   return requestJson('/health')
 }
 
+export function getAgentPrompt(): Promise<{ prompt: string }> {
+  return requestJson('/agent/prompt')
+}
+
 export function getMujocoState(): Promise<MujocoState> {
   return requestJson('/mujoco/state')
 }
@@ -50,5 +54,33 @@ export function stepMujoco(payload?: {
   return requestJson('/mujoco/step', {
     method: 'POST',
     body: JSON.stringify(payload ?? {}),
+  })
+}
+
+export type AgentRespondPayload = {
+  instruction: string
+  detections?: Record<string, unknown>[]
+  audio_transcript?: string
+  audio_direction?: string
+  audio_distance_m?: number
+  image_base64?: string
+  max_new_tokens?: number
+  temperature?: number
+  top_p?: number
+}
+
+export type AgentRespondResult = {
+  text: string
+  json?: Record<string, unknown> | null
+}
+
+export function agentRespond(
+  payload: AgentRespondPayload,
+  signal?: AbortSignal,
+): Promise<AgentRespondResult> {
+  return requestJson('/agent/respond', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    signal,
   })
 }

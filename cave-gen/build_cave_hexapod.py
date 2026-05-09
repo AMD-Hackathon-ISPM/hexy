@@ -36,6 +36,13 @@ def remove_world_body(worldbody: ET.Element, name: str) -> None:
     raise ValueError(f"cave scene is missing worldbody body {name!r}")
 
 
+def remove_rock_geoms(worldbody: ET.Element) -> None:
+    for geom in list(worldbody.findall("geom")):
+        name = geom.get("name", "")
+        if name.startswith("rock_"):
+            worldbody.remove(geom)
+
+
 def rewrite_cave_mesh_paths(asset: ET.Element) -> None:
     for mesh in asset.findall("mesh"):
         file_attr = mesh.get("file")
@@ -123,13 +130,14 @@ def build() -> None:
     remove_world_body(cave_worldbody, "robot")
     remove_direct_child(cave_root, cave_root.find("sensor"))
     remove_direct_child(cave_root, cave_root.find("keyframe"))
+    remove_rock_geoms(cave_worldbody)
 
     append_hexapod_mesh_assets(cave_asset, hexapod_asset)
 
     hexapod_body = find_hexapod_body(hexapod_worldbody)
     ensure_root_freejoint(hexapod_body)
     ensure_robot_pov_camera(hexapod_body)
-    hexapod_body.set("pos", "0 2.5 0.065")
+    hexapod_body.set("pos", "3.5 0.0 0.14")
     cave_worldbody.append(hexapod_body)
     cave_root.append(hexapod_actuator)
 

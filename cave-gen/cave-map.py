@@ -41,7 +41,7 @@ import random
 import time
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -65,33 +65,39 @@ RENDER_SEED_START = 1000    # Base RNG seed for episode randomisation
 PERSON_PRESENT_RATE = 0.85  # Positive samples where survivors should be visible
 
 # ── Base cave geometry ──────────────────────────────────────────────────────
-ROOM_MODE    = True     # Square cavern (no corridors)
-ROOM_HALF_SIZE = 6.0    # Half-width of square cavern (metres)
-ROOM_HEIGHT    = 2.4    # Ceiling height (metres)
-
-INNER_RADIUS   = 1.2    # Half-width of corridor (metres)
-CAVE_HEIGHT    = 2.2    # Floor-to-ceiling height at arch peak (metres)
-WALL_THICKNESS = 0.8    # Outer shell thickness for visual depth (metres)
+REAL_TO_SIM_SCALE = 0.065 / 0.20
+INNER_RADIUS   = 0.85   # Half-width of corridor (scaled metres)
+CAVE_HEIGHT    = 1.55   # Floor-to-ceiling height at arch peak (scaled metres)
+WALL_THICKNESS = 0.12   # Legacy outer-shell thickness for dataset mode
+OUTER_LAYER_OFFSET = 0.16  # Visual-only outside shell for orbit/layout view
 FLOOR_Z        = 0.0    # Z elevation of flat ground plane
+CAMERA_CLEARANCE_HEIGHT = 1.15
+HEXAPOD_FOOT_BOTTOM_REL_Z = -0.084803
+HEXAPOD_FLOOR_CLEARANCE = 0.002
+HEXAPOD_SPAWN_Z = FLOOR_Z + HEXAPOD_FLOOR_CLEARANCE - HEXAPOD_FOOT_BOTTOM_REL_Z
+ROBOT_SPAWN_FRACTION = 0.12
+CAVE_PATH_FRACTION = 0.42
+MUJOCO_DINO_CAMERA_HEIGHT = 0.30
 
 # ── Organic wall noise ──────────────────────────────────────────────────────
 NOISE_SEED       = 42
-NOISE_AMP        = 0.70
-STALACTITE_AMP   = 0.58
-WALL_VARIATION   = 0.25
-HEIGHT_VARIATION = 0.22
+NOISE_AMP        = 0.16
+STALACTITE_AMP   = 0.08
+WALL_VARIATION   = 0.12
+HEIGHT_VARIATION = 0.08
 
 # ── Entrance / exit widening ────────────────────────────────────────────────
 ENTRANCE_MULT     = 1.00
 EXIT_MULT         = 1.00
-TRANSITION_SLICES = 1
+TRANSITION_SLICES = 12
 
 # ── Mesh resolution ─────────────────────────────────────────────────────────
-N_PROFILE  = 42
-SWEEP_STEP = 0.20
+N_PROFILE  = 12
+SWEEP_STEP = 0.35
+CAVE_WALL_SECTIONS = 5
 
 # ── Rock obstacles ──────────────────────────────────────────────────────────
-N_ROCKS          = 0        # Number of random rock clusters placed in cave
+N_ROCKS          = 0        # Live scene keeps the path clear by default
 ROCK_MIN_SIZE    = 0.15     # Minimum rock half-extent (metres)
 ROCK_MAX_SIZE    = 0.35     # Maximum rock half-extent (metres)
 ROCK_CLEAR_ZONE  = 0.80     # Clear zone fraction near path centre (no rocks)
@@ -101,15 +107,59 @@ MAX_SURVIVORS     = 12      # Maximum survivors per episode
 SURVIVOR_SCALE    = 0.58    # Size scale for survivor geometry
 MIN_SURVIVORS     = 2       # Minimum survivors when present
 SURVIVOR_POSES    = ["lying", "sitting", "slumped"]
-MIN_CLEARANCE     = 1.2     # Minimum metres from path centre for survivors
+MIN_CLEARANCE     = 0.35    # Minimum metres from path centre for survivors
 VISIBILITY_BANDS  = ["low", "medium", "high"]
 SURVIVOR_VIEW_DISTANCE_MIN = 1.6
 SURVIVOR_VIEW_DISTANCE_MAX = 3.2
 SURVIVOR_VIEW_YAW_JITTER_DEG = 3.0
 
 # ── Maze waypoints (top-down, metres) ───────────────────────────────────────
-# Robot spawn — inside the cave, along the first corridor segment
-ROBOT_SPAWN = (0.0, 0.0, 0.32)
+# Robot spawn (camera viewpoint)
+ROBOT_SPAWN = (0.0, 2.5, HEXAPOD_SPAWN_Z)
+
+STONE_MATERIALS = [
+    ("cave_stone_dark", "0.22 0.23 0.22 1.0", "0.05", "0.015"),
+    ("cave_stone_warm", "0.33 0.31 0.27 1.0", "0.06", "0.018"),
+    ("cave_stone_green", "0.25 0.29 0.25 1.0", "0.04", "0.012"),
+    ("cave_stone_slate", "0.28 0.30 0.32 1.0", "0.05", "0.014"),
+    ("cave_stone_damp", "0.16 0.17 0.16 1.0", "0.03", "0.010"),
+    ("cave_stone_olive", "0.29 0.28 0.21 1.0", "0.04", "0.012"),
+]
+
+
+@dataclass
+class CavePathSpec:
+    name: str
+    path_points: list
+    seed_offset: int = 0
+    anchor_idx: Optional[int] = None
+    side: int = 0
+
+
+def robot_spawn_from_path(path_points: list) -> Tuple[float, float, float]:
+    """Return an interior spawn on the cave centerline with feet above floor."""
+    if not path_points:
+        return ROBOT_SPAWN
+    idx = int(np.clip(round((len(path_points) - 1) * ROBOT_SPAWN_FRACTION), 0, len(path_points) - 1))
+    pt = path_points[idx]
+    return (float(pt[0]), float(pt[1]), float(HEXAPOD_SPAWN_Z))
+
+
+def shorten_path(path_points: list, keep_fraction: float = CAVE_PATH_FRACTION) -> list:
+    """Keep the first part of the cave path for a shorter live scene."""
+    if not path_points:
+        return path_points
+    keep_count = max(16, int(math.ceil(len(path_points) * keep_fraction)))
+    return path_points[: min(keep_count, len(path_points))]
+
+
+def path_length(path_points: list) -> float:
+    if len(path_points) < 2:
+        return 0.0
+    return sum(
+        float(np.linalg.norm(path_points[i + 1] - path_points[i]))
+        for i in range(len(path_points) - 1)
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -301,6 +351,18 @@ def frame_at_path_index(path_points: list, idx: int) -> Tuple[np.ndarray, np.nda
     return fwd.copy(), right.copy(), up.copy()
 
 
+def _normalise_xy(vec: np.ndarray, fallback: np.ndarray) -> np.ndarray:
+    out = np.asarray(vec, dtype=float)
+    out = out[:2]
+    length = np.linalg.norm(out)
+    if length < 1e-9:
+        out = np.asarray(fallback, dtype=float)[:2]
+        length = np.linalg.norm(out)
+    if length < 1e-9:
+        return np.array([1.0, 0.0])
+    return out / length
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  SECTION 3 — CAVE CROSS-SECTION PROFILE
 # ═══════════════════════════════════════════════════════════════════════════
@@ -339,7 +401,7 @@ def arch_profile(world_pos: np.ndarray, seed: int,
                       + 0.20 * math.exp(-((alpha - math.pi) ** 2) / 0.40))
         base_r = math.cos(alpha) * eff_r * asym_base * flare
         base_h = math.sin(alpha) * eff_h
-        ceil_lin  = math.sin(alpha)
+        ceil_lin  = max(0.0, math.sin(alpha))
         ceil_zone = ceil_lin ** 0.65
         wall_n    = fbm_noise(
             wx * 0.44 + alpha * 0.83,
@@ -360,6 +422,8 @@ def arch_profile(world_pos: np.ndarray, seed: int,
         else:
             local_r = base_r
             local_h = base_h - stal_drop
+        if ceil_lin > 0.72:
+            local_h = max(local_h, CAMERA_CLEARANCE_HEIGHT)
         local_h = max(0.06, local_h)
         section.append((local_r, local_h))
     return section
@@ -459,6 +523,149 @@ def generate_cave_mesh(path_points, frames,
         if 0.5 * np.linalg.norm(np.cross(v1 - v0, v2 - v0)) > 1e-8:
             valid.append(tri)
     return valid
+
+
+@dataclass
+class CaveMeshSpec:
+    name: str
+    filename: str
+    material: str
+    triangles: list
+    contype: int = 1
+    conaffinity: int = 1
+    friction: str = "0.85 0.005 0.0001"
+
+
+def _valid_triangles(tris: list) -> list:
+    valid = []
+    for tri in tris:
+        v0, v1, v2 = (np.asarray(v, np.float64) for v in tri)
+        if 0.5 * np.linalg.norm(np.cross(v1 - v0, v2 - v0)) > 1e-8:
+            valid.append(tri)
+    return valid
+
+
+def _is_opening_segment(slice_idx: int, profile_segment_idx: int, openings: Optional[list]) -> bool:
+    if not openings:
+        return False
+    for opening in openings:
+        center_idx = int(opening["center_idx"])
+        half_slices = int(opening["half_slices"])
+        if abs(slice_idx - center_idx) > half_slices:
+            continue
+
+        side = int(opening["side"])
+        profile_segments = int(opening["profile_segments"])
+        if side >= 0 and profile_segment_idx < profile_segments:
+            return True
+        if side < 0 and profile_segment_idx >= (N_PROFILE - 1 - profile_segments):
+            return True
+    return False
+
+
+def generate_cave_mesh_sections(path_points, frames,
+                                section_count: int = CAVE_WALL_SECTIONS,
+                                seed_offset: int = 0,
+                                extra_offset: float = 0.0,
+                                inward_normals: bool = True,
+                                name_prefix: str = "cave_wall",
+                                filename_prefix: str = "cave_wall",
+                                material_offset: int = 0,
+                                contype: int = 1,
+                                conaffinity: int = 1,
+                                openings: Optional[list] = None) -> List[CaveMeshSpec]:
+    """Build low-poly cave wall sections so adjacent chunks vary in stone color."""
+    verts = _build_vertex_grid(path_points, frames, extra_offset, seed_offset)
+    n_slices = len(verts)
+    if n_slices < 2:
+        return []
+
+    section_count = max(1, min(int(section_count), n_slices - 1))
+    sections: List[CaveMeshSpec] = []
+    for section_idx in range(section_count):
+        start = int(round(section_idx * (n_slices - 1) / section_count))
+        end = int(round((section_idx + 1) * (n_slices - 1) / section_count))
+        if end <= start:
+            continue
+
+        tris = []
+        for i in range(start, end):
+            for j in range(N_PROFILE - 1):
+                if _is_opening_segment(i, j, openings):
+                    continue
+                v00, v10 = verts[i][j],     verts[i + 1][j]
+                v11, v01 = verts[i + 1][j + 1], verts[i][j + 1]
+                if inward_normals:
+                    tris.append([v00, v11, v10])
+                    tris.append([v00, v01, v11])
+                else:
+                    tris.append([v00, v10, v11])
+                    tris.append([v00, v11, v01])
+
+        material = STONE_MATERIALS[(section_idx + material_offset) % len(STONE_MATERIALS)][0]
+        sections.append(
+            CaveMeshSpec(
+                name=f"{name_prefix}_{section_idx:02d}",
+                filename=f"{filename_prefix}_{section_idx:02d}.stl",
+                material=material,
+                triangles=_valid_triangles(tris),
+                contype=contype,
+                conaffinity=conaffinity,
+            )
+        )
+    return sections
+
+
+def _section_count_for_path(path_points: list) -> int:
+    """Keep chunks large enough that material variation is visible, not noisy."""
+    if len(path_points) <= 36:
+        return 3
+    if len(path_points) <= 72:
+        return 4
+    return CAVE_WALL_SECTIONS
+
+
+def generate_cave_wall_layers(paths: List[CavePathSpec]) -> List[CaveMeshSpec]:
+    """Generate inner visible walls plus an outside visual shell for each tunnel."""
+    meshes: List[CaveMeshSpec] = []
+
+    for path_idx, path in enumerate(paths):
+        frames = compute_frames(path.path_points)
+        section_count = _section_count_for_path(path.path_points)
+        name_safe = path.name.replace("-", "_")
+
+        meshes.extend(
+            generate_cave_mesh_sections(
+                path.path_points,
+                frames,
+                section_count=section_count,
+                seed_offset=path.seed_offset,
+                extra_offset=0.0,
+                inward_normals=True,
+                name_prefix=f"cave_inner_{name_safe}",
+                filename_prefix=f"cave_inner_{name_safe}",
+                material_offset=path_idx,
+                contype=1,
+                conaffinity=1,
+            )
+        )
+        meshes.extend(
+            generate_cave_mesh_sections(
+                path.path_points,
+                frames,
+                section_count=section_count,
+                seed_offset=path.seed_offset,
+                extra_offset=OUTER_LAYER_OFFSET,
+                inward_normals=False,
+                name_prefix=f"cave_outer_{name_safe}",
+                filename_prefix=f"cave_outer_{name_safe}",
+                material_offset=path_idx + 2,
+                contype=0,
+                conaffinity=0,
+            )
+        )
+
+    return meshes
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -675,12 +882,14 @@ def _make_survivor_geoms(root: np.ndarray, pose: str,
 
     # ── Helper to append a geom ────────────────────────────────────────────
     def add(name, gtype, pos_local, size, euler_local=(0, 0, 0)):
-        lx, ly = rot_xy(pos_local[0], pos_local[1], yaw_rad)
+        scaled_pos = tuple(value * SURVIVOR_SCALE for value in pos_local)
+        scaled_size = tuple(value * SURVIVOR_SCALE for value in size)
+        lx, ly = rot_xy(scaled_pos[0], scaled_pos[1], yaw_rad)
         geoms.append({
             "name":  f"{prefix}_{name}",
             "type":  gtype,
-            "pos":   (lx * s, ly * s, pos_local[2] * s),
-            "size":  tuple(v * s for v in size),
+            "pos":   (lx, ly, scaled_pos[2]),
+            "size":  scaled_size,
             "euler": (euler_local[0],
                       euler_local[1],
                       euler_local[2] + yaw_deg),
@@ -730,6 +939,7 @@ def _make_survivor_geoms(root: np.ndarray, pose: str,
     return geoms
 
 
+SURVIVOR_SCALE = REAL_TO_SIM_SCALE
 SURVIVOR_ROOT_Z = {
     "lying":  FLOOR_Z + 0.05 * SURVIVOR_SCALE,
     "sitting": FLOOR_Z + 0.35 * SURVIVOR_SCALE,
@@ -748,8 +958,8 @@ SURVIVOR_POSE_HEIGHT = {
     "slumped": 0.60 * SURVIVOR_SCALE,
 }
 
-SURVIVOR_WALL_MARGIN = 0.18
-SURVIVOR_ROCK_GAP = 0.15
+SURVIVOR_WALL_MARGIN = 0.18 * SURVIVOR_SCALE
+SURVIVOR_ROCK_GAP = 0.15 * SURVIVOR_SCALE
 
 
 def _nearest_path_index_2d(path_points: list, xy: np.ndarray) -> int:
@@ -922,7 +1132,8 @@ def place_survivors(path_points: list,
                     n_survivors: int,
                     difficulty: str = "medium",
                     camera_pos: Optional[np.ndarray] = None,
-                    seed_offset: int = 0) -> List[Survivor]:
+                    seed_offset: int = 0,
+                    start_id: int = 0) -> List[Survivor]:
     """
     Randomly place n_survivors inside the cave and measure rock occlusion.
     
@@ -962,7 +1173,8 @@ def place_survivors(path_points: list,
     }
     camera_ref = np.asarray(camera_pos if camera_pos is not None else ROBOT_SPAWN, dtype=float)
 
-    for sid in range(n_survivors):
+    for local_sid in range(n_survivors):
+        sid = start_id + local_sid
         root = None
         pose = str(rng.choice(SURVIVOR_POSES))
 
@@ -1114,7 +1326,51 @@ def _camera_xyaxes(camera_pos: np.ndarray,
     )
 
 
-def write_mujoco_xml(inner_stl: str, outer_stl: str, xml_path: str,
+def _normalise_cave_meshes(
+    cave_meshes: Union[str, List[CaveMeshSpec]],
+    outer_stl: Optional[str],
+) -> Tuple[str, str]:
+    if isinstance(cave_meshes, list):
+        asset_lines = [
+            f'    <mesh name="{mesh.name}" file="{mesh.filename}" scale="1 1 1"/>'
+            for mesh in cave_meshes
+        ]
+        geom_lines = [
+            f'    <geom name="{mesh.name}" type="mesh" mesh="{mesh.name}" '
+            f'material="{mesh.material}" contype="{mesh.contype}" '
+            f'conaffinity="{mesh.conaffinity}" friction="{mesh.friction}"/>'
+            for mesh in cave_meshes
+        ]
+        return "\n".join(asset_lines), "\n".join(geom_lines)
+
+    asset_lines = [f'    <mesh name="cave_inner" file="{cave_meshes}" scale="1 1 1"/>']
+    geom_lines = [
+        '    <geom name="cave_wall_inner" type="mesh" mesh="cave_inner"',
+        '      material="cave_stone_dark"',
+        '      contype="1" conaffinity="1"',
+        '      friction="0.85 0.005 0.0001"/>',
+    ]
+    if outer_stl:
+        asset_lines.append(f'    <mesh name="cave_outer" file="{outer_stl}" scale="1 1 1"/>')
+        geom_lines.append(
+            '    <geom name="cave_wall_outer" type="mesh" mesh="cave_outer" '
+            'material="cave_stone_damp" contype="0" conaffinity="0"/>'
+        )
+    return "\n".join(asset_lines), "\n".join(geom_lines)
+
+
+def _stone_material_xml() -> str:
+    lines = []
+    for name, rgba, specular, shininess in STONE_MATERIALS:
+        lines.append(
+            f'    <material name="{name}" rgba="{rgba}" '
+            f'specular="{specular}" shininess="{shininess}" reflectance="0.01"/>'
+        )
+    return "\n".join(lines)
+
+
+def write_mujoco_xml(cave_meshes: Union[str, List[CaveMeshSpec]],
+                     outer_stl: Optional[str], xml_path: str,
                      path_points: list,
                      rocks: Optional[List[RockObstacle]] = None,
                      survivors: Optional[List[Survivor]] = None,
@@ -1127,21 +1383,17 @@ def write_mujoco_xml(inner_stl: str, outer_stl: str, xml_path: str,
     """
     rocks     = rocks     or []
     survivors = survivors or []
-    sx, sy, sz = ROBOT_SPAWN
+    sx, sy, sz = robot_spawn_from_path(path_points)
     ex, ey, _ = get_entrance_coordinate(path_points)
     xx, xy  = float(path_points[-1][0]), float(path_points[-1][1])
+    cave_mesh_asset_xml, cave_wall_geom_xml = _normalise_cave_meshes(cave_meshes, outer_stl)
+    stone_material_xml = _stone_material_xml()
 
-    if ROOM_MODE:
-        l1 = np.array([ ROOM_HALF_SIZE * 0.5,  ROOM_HALF_SIZE * 0.4, 0.0])
-        l2 = np.array([-ROOM_HALF_SIZE * 0.4,  ROOM_HALF_SIZE * 0.4, 0.0])
-        l3 = np.array([ 0.0, -ROOM_HALF_SIZE * 0.5, 0.0])
-        lh = ROOM_HEIGHT * 0.85
-    else:
-        n = len(path_points)
-        def lp(frac):
-            return path_points[min(int(frac * n), n - 1)]
-        l1, l2, l3 = lp(0.25), lp(0.50), lp(0.75)
-        lh = CAVE_HEIGHT * 0.80
+    n = len(path_points)
+    def lp(frac):
+        return path_points[min(int(frac * n), n - 1)]
+    l1, l2, l3 = lp(0.25), lp(0.50), lp(0.75)
+    lh = CAVE_HEIGHT * 0.80
 
     # ── Per-episode lighting variation ────────────────────────────────────
     rng_l  = np.random.default_rng(light_seed)
@@ -1175,20 +1427,20 @@ def write_mujoco_xml(inner_stl: str, outer_stl: str, xml_path: str,
         ...
     """
 
-        # ── Rock geom XML ─────────────────────────────────────────────────────
-        rock_xml_lines = []
-        for rock in rocks:
-                px, py, pz   = rock.pos
-                sa, sb, sc   = rock.size
-                ex0, ey0, ez0 = rock.euler
-                rock_xml_lines.append(
-                        f'    <geom name="{rock.name}" type="ellipsoid" '
-                        f'pos="{px:.3f} {py:.3f} {pz:.3f}" '
-                        f'size="{sa:.3f} {sb:.3f} {sc:.3f}" '
-                        f'euler="{math.degrees(ex0):.1f} {math.degrees(ey0):.1f} {math.degrees(ez0):.1f}" '
-                        f'material="cave_rock" contype="1" conaffinity="1"/>'
-                )
-        rock_xml = "\n".join(rock_xml_lines)
+    # ── Rock geom XML ─────────────────────────────────────────────────────
+    rock_xml_lines = []
+    for rock in rocks:
+        px, py, pz   = rock.pos
+        sa, sb, sc   = rock.size
+        ex0, ey0, ez0 = rock.euler
+        rock_xml_lines.append(
+            f'    <geom name="{rock.name}" type="ellipsoid" '
+            f'pos="{px:.3f} {py:.3f} {pz:.3f}" '
+            f'size="{sa:.3f} {sb:.3f} {sc:.3f}" '
+            f'euler="{math.degrees(ex0):.1f} {math.degrees(ey0):.1f} {math.degrees(ez0):.1f}" '
+            f'material="cave_stone_damp" contype="1" conaffinity="1"/>'
+        )
+    rock_xml = "\n".join(rock_xml_lines)
 
     # ── Survivor body XML ─────────────────────────────────────────────────
     surv_xml_lines = []
@@ -1245,19 +1497,23 @@ def write_mujoco_xml(inner_stl: str, outer_stl: str, xml_path: str,
   <option gravity="0 0 -9.81" timestep="0.002" integrator="RK4" cone="pyramidal"/>
 
   <visual>
-    <rgba haze="0.10 0.04 0.03 1"/>
+    <headlight ambient="0.18 0.18 0.17" diffuse="0.48 0.45 0.38" specular="0.05 0.05 0.05"/>
+    <rgba haze="0.06 0.05 0.04 1"/>
     <quality shadowsize="4096"/>
     <map stiffness="100" shadowscale="0.4"/>
     <global fovy="65"/>
   </visual>
 
   <asset>
-        <mesh name="cave_inner" file="{inner_stl}" scale="1 1 1"/>
+{cave_mesh_asset_xml}
 
-        <material name="cave_rock"
-            rgba="0.60 0.22 0.18 1.0" specular="0.06" shininess="0.03" reflectance="0.01"/>
-        <material name="cave_floor"
-            rgba="0.46 0.18 0.16 1.0" specular="0.03" shininess="0.008"/>
+{stone_material_xml}
+    <material name="cave_floor"
+      rgba="0.20 0.21 0.20 1.0" specular="0.025" shininess="0.006"/>
+
+    <texture type="skybox" builtin="flat"
+      rgb1="0.03 0.03 0.05" rgb2="0.01 0.01 0.02"
+      width="512" height="512"/>
   </asset>
 
   <worldbody>
@@ -1287,13 +1543,8 @@ def write_mujoco_xml(inner_stl: str, outer_stl: str, xml_path: str,
       contype="1" conaffinity="1"
       friction="1.0 0.005 0.0001"/>
 
-{room_wall_xml}
-
-    <!-- ── Cave inner wall (collision + visual) ──────────────────── -->
-    <geom name="cave_wall_inner" type="mesh" mesh="cave_inner"
-      material="cave_rock"
-      contype="1" conaffinity="1"
-      friction="0.85 0.005 0.0001"/>
+    <!-- ── Cave wall sections (collision + mixed stone visuals) ─── -->
+{cave_wall_geom_xml}
 
     <!-- ── Rock obstacles ───────────────────────────────────────── -->
 {rock_xml}
@@ -1324,7 +1575,7 @@ def write_mujoco_xml(inner_stl: str, outer_stl: str, xml_path: str,
         castshadow="false"/>
       <!-- Robot-eye camera — used by dataset renderer -->
       <camera name="robot_cam"
-        pos="0 0.35 0.55"
+        pos="0 0.35 {MUJOCO_DINO_CAMERA_HEIGHT:.2f}"
         xyaxes="1 0 0 0 0 1"
         fovy="{CAMERA_FOV_DEG}"/>
     </body>
@@ -1572,13 +1823,9 @@ def run_dataset_pipeline(n_episodes: int = N_EPISODES,
     # Pre-build the base mesh (expensive — done once) ──────────────────────
     print("\n[Dataset]  Building base cave path & meshes (once)…")
     base_seed = seed_start  # Use seed_start for consistent base mesh
-    if ROOM_MODE:
-        base_path_points = [np.array([0.0, 0.0, FLOOR_Z], dtype=float)]
-        base_frames = [(np.array([0.0, 1.0, 0.0]), np.array([1.0, 0.0, 0.0]), np.array([0.0, 0.0, 1.0]))]
-    else:
-        waypoints = generate_maze_waypoints(base_seed)
-        base_path_points = build_smooth_path(waypoints, step=SWEEP_STEP)
-        base_frames = compute_frames(base_path_points)
+    waypoints = generate_maze_waypoints(base_seed)
+    base_path_points = shorten_path(build_smooth_path(waypoints, step=SWEEP_STEP))
+    base_frames = compute_frames(base_path_points)
 
     inner_stl = f"cave_inner_seed_{base_seed}.stl"
     outer_stl = f"cave_outer_seed_{base_seed}.stl"
@@ -1831,50 +2078,41 @@ def main():
         print(f"       {d}/")
 
     # ── Path + frames ─────────────────────────────────────────────────────
-    if ROOM_MODE:
-        print("\n[2/7]  Using square room layout…")
-        path_points = [np.array([0.0, 0.0, FLOOR_Z], dtype=float)]
-        frames = [(np.array([0.0, 1.0, 0.0]), np.array([1.0, 0.0, 0.0]), np.array([0.0, 0.0, 1.0]))]
-        print(f"       room half-size: {ROOM_HALF_SIZE:.1f} m")
-        print(f"       room height: {ROOM_HEIGHT:.1f} m")
-    else:
-        print("\n[2/7]  Building Catmull-Rom path…")
-        seed = 0  # fixed seed for preview
-        waypoints = generate_maze_waypoints(seed)
-
-        path_points = build_smooth_path(waypoints, SWEEP_STEP)
-        frames = compute_frames(path_points)
-        total_len = sum(float(np.linalg.norm(path_points[i+1] - path_points[i]))
-                        for i in range(len(path_points) - 1))
-        entrance_xyz = get_entrance_coordinate(path_points)
-        print(f"       {len(waypoints)} waypoints → "
-              f"{len(path_points)} samples  (≈ {total_len:.1f} m)")
-        print(f"       entrance path starts at "
-              f"({entrance_xyz[0]:.2f}, {entrance_xyz[1]:.2f}, {entrance_xyz[2]:.2f})")
+    print("\n[2/7]  Building Catmull-Rom cave path…")
+    seed = 0  # fixed seed for preview
+    waypoints = generate_maze_waypoints(seed)
+    path_points = shorten_path(build_smooth_path(waypoints, SWEEP_STEP))
+    cave_paths = [CavePathSpec(name="main", path_points=path_points, seed_offset=0)]
+    total_len = path_length(path_points)
+    entrance_xyz = get_entrance_coordinate(path_points)
+    print(f"       {len(waypoints)} waypoints → "
+          f"{len(path_points)} samples  (≈ {total_len:.1f} m)")
+    print(f"       entrance path starts at "
+          f"({entrance_xyz[0]:.2f}, {entrance_xyz[1]:.2f}, {entrance_xyz[2]:.2f})")
 
         print("\n[3/7]  Computing Frenet frames…")
         frames = compute_frames(path_points)
         print(f"       {len(frames)} frames")
 
     # ── Cave meshes ─────────────────────── ────────────────────────────────
-    print("\n[4/7]  Generating cave meshes…")
-    inner_name = "cave_inner.stl"
-    outer_name = "cave_outer.stl"
-    if ROOM_MODE:
-        inner_tris = generate_room_mesh(ROOM_HALF_SIZE, ROOM_HEIGHT)
-        write_binary_stl(inner_tris, os.path.join(MESH_DIR, inner_name))
-    else:
-        inner_tris = generate_cave_mesh(path_points, frames,
-                                        extra_offset=0.0, seed_offset=0,
-                                        inward_normals=True,
-                                        open_entrance=False, open_exit=False)
-        outer_tris = generate_cave_mesh(path_points, frames,
-                                        extra_offset=WALL_THICKNESS, seed_offset=777,
-                                        inward_normals=False,
-                                        open_entrance=False, open_exit=False)
-        outer_name = "cave_outer.stl"
-        write_binary_stl(inner_tris, os.path.join(MESH_DIR, inner_name))
-        write_binary_stl(outer_tris, os.path.join(MESH_DIR, outer_name))
+    print("\n[4/7]  Generating low-poly cave wall layers…")
+    for pattern in (
+        "cave_wall_*.stl",
+        "cave_inner_main_*.stl",
+        "cave_outer_main_*.stl",
+        "cave_inner_branch_*.stl",
+        "cave_outer_branch_*.stl",
+    ):
+        for stale in Path(MESH_DIR).glob(pattern):
+            stale.unlink()
+    wall_meshes = generate_cave_wall_layers(cave_paths)
+    for mesh in wall_meshes:
+        write_binary_stl(mesh.triangles, os.path.join(MESH_DIR, mesh.filename))
+    total_tris = sum(len(mesh.triangles) for mesh in wall_meshes)
+    inner_tris = sum(len(mesh.triangles) for mesh in wall_meshes if mesh.name.startswith("cave_inner_"))
+    outer_tris = total_tris - inner_tris
+    print(f"       {len(wall_meshes)} wall sections → {total_tris} triangles "
+          f"({inner_tris} inner, {outer_tris} outer)")
 
     # ── Rock obstacles (demo scene) ───────────────────────────────────────
     print("\n[5/7]  Generating rock obstacles…")
@@ -1887,11 +2125,10 @@ def main():
 
     # ── Survivors (demo scene) ────────────────────────────────────────────
     print("\n[6/7]  Placing demo survivors…")
-    if ROOM_MODE:
-        survivors = place_survivors_room(demo_rng, rocks, 5)
-    else:
-        survivors = place_survivors(path_points, rocks, demo_rng, 2,
-                                    difficulty="medium")
+    robot_spawn = robot_spawn_from_path(path_points)
+    survivors = place_survivors(path_points, rocks, demo_rng, 3,
+                                difficulty="medium",
+                                camera_pos=np.asarray(robot_spawn, dtype=float))
     for s in survivors:
         m = s.meta
         print(f"       Survivor {m.survivor_id}: pose={m.pose:8s}  "
@@ -1903,7 +2140,7 @@ def main():
     # ── Write base scene XML ──────────────────────────────────────────────
     print("\n[7/7]  Writing MuJoCo scene XML…")
     xml_path = os.path.join(OUTPUT_DIR, "cave_maze.xml")
-    write_mujoco_xml(inner_name, outer_name, xml_path,
+    write_mujoco_xml(wall_meshes, None, xml_path,
                      path_points, rocks=rocks, survivors=survivors,
                      light_seed=NOISE_SEED)
 
@@ -1920,30 +2157,35 @@ def main():
     except Exception as exc:
         print(f"  ✗  Validation error: {exc}")
 
-    # ── Dataset generation (skip with --no-dataset) ───────────────────────
-    import sys
-    if "--no-dataset" not in sys.argv:
+    # ── Dataset generation ────────────────────────────────────────────────
+    generate_dataset = os.environ.get("CAVE_GENERATE_DATASET", "0").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if generate_dataset:
         print(f"\n{'─'*70}")
         print(f"  MODULE 3 — Synthetic Dataset Pipeline")
         print(f"  Target: {N_EPISODES} episodes  →  {IMAGES_DIR}/  +  {LABELS_DIR}/")
         print(f"{'─'*70}")
         run_dataset_pipeline(n_episodes=N_EPISODES, seed_start=RENDER_SEED_START)
     else:
-        print("\n  Skipping dataset pipeline (--no-dataset).")
+        print("\n[Dataset]  Skipped. Set CAVE_GENERATE_DATASET=1 to render episodes.")
 
     # ── Summary ───────────────────────────────────────────────────────────
+    mesh_summary = f"{len(wall_meshes)} wall STL sections, {total_tris} triangles"
     print(f"""
 ╔══════════════════════════════════════════════════════════════════════╗
 ║                           DONE  ✓                                   ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Static scene files:                                                ║
 ║    {xml_path:<68}║
-║    {os.path.join(MESH_DIR, inner_name):<68}║
-║    {os.path.join(MESH_DIR, outer_name):<68}║
+║    {MESH_DIR:<68}║
+║    {mesh_summary:<68}║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Dataset:                                                           ║
-║    {IMAGES_DIR:<68}║
-║    {LABELS_DIR:<68}║
+║    {'disabled by default':<68}║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  View scene:                                                        ║
 ║    python3 -m mujoco.viewer {xml_path:<43}║

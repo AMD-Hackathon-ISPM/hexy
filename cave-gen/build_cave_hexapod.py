@@ -14,6 +14,7 @@ HEXAPOD_MODEL_PATH = Path(
 )
 CAVE_XML_PATH = CAVE_OUTPUT_DIR / "cave_maze.xml"
 OUTPUT_XML_PATH = CAVE_OUTPUT_DIR / "cave_hexapod.xml"
+MUJOCO_DINO_CAMERA_HEIGHT = float(os.environ.get("MUJOCO_DINO_CAMERA_HEIGHT", "0.3"))
 
 
 def require_child(parent: ET.Element, tag: str, source: Path) -> ET.Element:
@@ -28,19 +29,62 @@ def remove_direct_child(parent: ET.Element, child: ET.Element | None) -> None:
         parent.remove(child)
 
 
-def remove_world_body(worldbody: ET.Element, name: str) -> None:
+def remove_world_body(worldbody: ET.Element, name: str) -> ET.Element:
     for body in list(worldbody.findall("body")):
         if body.get("name") == name:
             worldbody.remove(body)
-            return
+            return body
     raise ValueError(f"cave scene is missing worldbody body {name!r}")
 
 
-def remove_rock_geoms(worldbody: ET.Element) -> None:
-    for geom in list(worldbody.findall("geom")):
-        name = geom.get("name", "")
-        if name.startswith("rock_"):
-            worldbody.remove(geom)
+def parse_vec(raw: str | None, default: tuple[float, float, float]) -> tuple[float, float, float]:
+    if not raw:
+        return default
+    values = [float(part) for part in raw.split()]
+    if len(values) < 3:
+        return default
+    return values[0], values[1], values[2]
+
+
+def fmt_vec(values: tuple[float, float, float]) -> str:
+    return " ".join(f"{value:.6f}" for value in values)
+
+
+def lowest_foot_bottom_z(hexapod_body: ET.Element) -> float | None:
+    bottoms: list[float] = []
+
+    def walk(node: ET.Element, offset: tuple[float, float, float]) -> None:
+        next_offset = offset
+        if node.tag == "body":
+            local_pos = parse_vec(node.get("pos"), (0.0, 0.0, 0.0))
+            next_offset = (
+                offset[0] + local_pos[0],
+                offset[1] + local_pos[1],
+                offset[2] + local_pos[2],
+            )
+
+        if node.tag == "geom" and (node.get("name") or "").endswith("_foot"):
+            local_pos = parse_vec(node.get("pos"), (0.0, 0.0, 0.0))
+            size_raw = node.get("size") or "0"
+            radius = float(size_raw.split()[0])
+            bottoms.append(next_offset[2] + local_pos[2] - radius)
+
+        for child in node:
+            walk(child, next_offset)
+
+    for child in hexapod_body:
+        walk(child, (0.0, 0.0, 0.0))
+    return min(bottoms) if bottoms else None
+
+
+def resolve_hexapod_spawn(spawn_body: ET.Element, hexapod_body: ET.Element) -> tuple[float, float, float]:
+    spawn_x, spawn_y, fallback_z = parse_vec(spawn_body.get("pos"), (0.0, 0.0, 0.065))
+    foot_bottom = lowest_foot_bottom_z(hexapod_body)
+    if foot_bottom is None:
+        return spawn_x, spawn_y, fallback_z
+
+    clearance = float(os.environ.get("HEXAPOD_FLOOR_CLEARANCE", "0.002"))
+    return spawn_x, spawn_y, clearance - foot_bottom
 
 
 def rewrite_cave_mesh_paths(asset: ET.Element) -> None:
@@ -84,9 +128,9 @@ def ensure_robot_pov_camera(hexapod_body: ET.Element) -> None:
     camera_attrs = {
         "name": "robot_pov",
         "mode": "fixed",
-        "pos": "0 0 0.65",
+        "pos": f"0 0 {MUJOCO_DINO_CAMERA_HEIGHT:.2f}",
         "xyaxes": "1 0 0 0 0 1",
-        "fovy": "45",
+        "fovy": "70",
     }
 
     for child in hexapod_body.findall("camera"):
@@ -105,6 +149,37 @@ def ensure_robot_pov_camera(hexapod_body: ET.Element) -> None:
             camera_attrs,
         ),
     )
+
+
+def ensure_robot_headlamp(hexapod_body: ET.Element) -> None:
+    headlamp_attrs = {
+        "name": "robot_headlamp",
+        "pos": "0 0.18 0.62",
+        "dir": "0 1 -0.08",
+        "diffuse": "1.65 1.48 1.16",
+        "specular": "0.12 0.12 0.10",
+        "directional": "true",
+        "castshadow": "false",
+    }
+    fill_attrs = {
+        "name": "robot_soft_fill",
+        "pos": "0 0.06 0.40",
+        "diffuse": "0.45 0.42 0.36",
+        "castshadow": "false",
+    }
+
+    wanted = {
+        "robot_headlamp": headlamp_attrs,
+        "robot_soft_fill": fill_attrs,
+    }
+    existing = {child.get("name"): child for child in hexapod_body.findall("light")}
+    for name, attrs in wanted.items():
+        light = existing.get(name)
+        if light is None:
+            hexapod_body.insert(1, ET.Element("light", attrs))
+            continue
+        light.attrib.clear()
+        light.attrib.update(attrs)
 
 
 def build() -> None:
@@ -127,7 +202,7 @@ def build() -> None:
     hexapod_actuator = require_child(hexapod_root, "actuator", HEXAPOD_MODEL_PATH)
 
     rewrite_cave_mesh_paths(cave_asset)
-    remove_world_body(cave_worldbody, "robot")
+    spawn_body = remove_world_body(cave_worldbody, "robot")
     remove_direct_child(cave_root, cave_root.find("sensor"))
     remove_direct_child(cave_root, cave_root.find("keyframe"))
     remove_rock_geoms(cave_worldbody)
@@ -137,7 +212,8 @@ def build() -> None:
     hexapod_body = find_hexapod_body(hexapod_worldbody)
     ensure_root_freejoint(hexapod_body)
     ensure_robot_pov_camera(hexapod_body)
-    hexapod_body.set("pos", "3.5 0.0 0.14")
+    ensure_robot_headlamp(hexapod_body)
+    hexapod_body.set("pos", fmt_vec(resolve_hexapod_spawn(spawn_body, hexapod_body)))
     cave_worldbody.append(hexapod_body)
     cave_root.append(hexapod_actuator)
 

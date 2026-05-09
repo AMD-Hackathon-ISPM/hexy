@@ -116,6 +116,7 @@ services:
       CAVE_OUTPUT_DIR: /cave_env
       CAVE_MESH_DIR: /cave_env/meshes
       CAVE_DATASET_DIR: /dataset
+      CAVE_GENERATE_DATASET: ${CAVE_GENERATE_DATASET:-0}
       HEXAPOD_MODEL_PATH: /vendor_rl/models/hexapod_static.xml
     volumes:
       - ./cave-gen/cave_env:/cave_env

@@ -56,8 +56,9 @@ docker compose --profile training-gpu run --rm learning-gpu python scripts/test_
 ## Optional: cave environment
 
 `cave-gen` procedurally generates a cave scene with the real hexapod spliced
-in, plus a 1000-episode synthetic survivor dataset. It runs as a one-shot job
-under a compose profile, so the default `up` is unaffected.
+in. The 1000-episode synthetic survivor dataset is opt-in via
+`CAVE_GENERATE_DATASET=1`. It runs as a one-shot job under a compose profile, so
+the default `up` is unaffected.
 
 There are three speeds, pick the slowest one you actually need:
 
@@ -72,11 +73,14 @@ docker compose up --build
 docker compose --profile data-gen run --rm --entrypoint python cave-gen build_cave_hexapod.py
 docker compose restart backend
 
-# 3. FULL REGEN (~30-60 min on CPU): rebuild the cave meshes from scratch
-#    and regenerate the synthetic dataset. Only needed for the first ever
-#    generation or when you want a brand-new procedural layout.
+# 3. FULL REGEN (~seconds for the live scene): rebuild the lightweight cave
+#    meshes from scratch. Only needed for the first ever generation or when you
+#    want a brand-new procedural layout.
 docker compose --profile data-gen run --rm cave-gen
 docker compose restart backend
+
+# Optional dataset render (~30-60 min on CPU):
+CAVE_GENERATE_DATASET=1 docker compose --profile data-gen run --rm cave-gen
 ```
 
 To revert to the static hexapod scene:

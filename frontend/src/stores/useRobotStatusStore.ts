@@ -42,6 +42,15 @@ export type AudioAlert = {
   timestamp: number
 }
 
+export type SurvivorAudioEvent = {
+  id: number
+  phrase: string
+  sourceId: string
+  timestamp: number
+}
+
+type SurvivorAudioEventInput = Omit<SurvivorAudioEvent, 'id'>
+
 export type DinoDetection = {
   label: string
   confidence: number
@@ -62,6 +71,7 @@ type RobotStatusState = {
   mujocoState?: MujocoState
   audioTranscript?: AudioTranscript
   audioAlert?: AudioAlert
+  survivorAudioEvent?: SurvivorAudioEvent
   dinoDetections?: DinoDetections
   setTasks: (tasks: Task[]) => void
   setStatus: (patch: Partial<RobotStatus>) => void
@@ -70,6 +80,7 @@ type RobotStatusState = {
   setMujocoStreamState: (state: MujocoState) => void
   setAudioTranscript: (transcript: AudioTranscript) => void
   setAudioAlert: (alert?: AudioAlert) => void
+  setSurvivorAudioEvent: (event: SurvivorAudioEventInput) => void
   setDinoDetections: (detections: DinoDetections) => void
 }
 
@@ -116,6 +127,7 @@ export const useRobotStatusStore = create<RobotStatusState>((set) => ({
   mujocoState: undefined,
   audioTranscript: undefined,
   audioAlert: undefined,
+  survivorAudioEvent: undefined,
   dinoDetections: undefined,
   setTasks: (tasks) => set({ tasks }),
   setStatus: (patch) =>
@@ -135,5 +147,12 @@ export const useRobotStatusStore = create<RobotStatusState>((set) => ({
     })),
   setAudioTranscript: (audioTranscript) => set({ audioTranscript }),
   setAudioAlert: (audioAlert) => set({ audioAlert }),
+  setSurvivorAudioEvent: (event) =>
+    set((state) => ({
+      survivorAudioEvent: {
+        ...event,
+        id: (state.survivorAudioEvent?.id ?? 0) + 1,
+      },
+    })),
   setDinoDetections: (dinoDetections) => set({ dinoDetections }),
 }))

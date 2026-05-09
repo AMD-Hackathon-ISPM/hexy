@@ -5,8 +5,12 @@ import { findBodyByName, useMujoco } from 'mujoco-react'
 import type { MujocoState } from '@/lib/backendClient'
 import { useViewportStore, type CameraPreset, type ViewMode } from '@/stores/useViewportStore'
 import { useRobotStatusStore } from '@/stores/useRobotStatusStore'
+import { SurvivorSpatialAudio } from './SurvivorSpatialAudio'
 import * as THREE from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
+
+const ROBOT_POV_CAMERA_HEIGHT = 0.12
+const ROBOT_POV_CAMERA_FOV = 40
 
 const cameraConfig = {
   orbit: {
@@ -15,9 +19,9 @@ const cameraConfig = {
     fov: 42,
   },
   robotPOV: {
-    position: [0.0, 0.0, 0.65] as [number, number, number],
+    position: [0.0, 0.0, ROBOT_POV_CAMERA_HEIGHT] as [number, number, number],
     up: [0, 0, 1] as [number, number, number],
-    fov: 45,
+    fov: ROBOT_POV_CAMERA_FOV,
   },
 } as const
 
@@ -518,10 +522,7 @@ function OrbitCameraControls({
       targetDelta.current.copy(nextTarget.current).sub(targetRef.current)
       if (targetDelta.current.lengthSq() > 0.00000001) {
         targetRef.current.copy(nextTarget.current)
-        if (
-          (!freecam && !orbitFocusInitializedRef.current) ||
-          (freecam && !freecamFocusInitializedRef.current)
-        ) {
+        if (!freecam || !freecamFocusInitializedRef.current) {
           camera.position.add(targetDelta.current)
         }
       }
@@ -652,8 +653,9 @@ export function SceneStage({
   const robotCamera = useMemo(() => createSceneCamera('robotPOV'), [])
   const orbitTargetRef = useRef(new THREE.Vector3(...ORBIT_TARGET_FALLBACK))
   const freecamResetNonce = useViewportStore((s) => s.freecamResetNonce)
-  const robotPovOffset = useMemo(() => new THREE.Vector3(0.0, 0.0, 0.65), [])
+  const robotPovOffset = useMemo(() => new THREE.Vector3(0.0, 0.0, ROBOT_POV_CAMERA_HEIGHT), [])
   const robotPovForward = useMemo(() => new THREE.Vector3(0.0, 1.0, 0.0), [])
+  const mainCamera = mainCameraPreset === 'orbit' ? orbitCamera : robotCamera
 
   useEffect(() => {
     if (viewMode === 'freecam') return
@@ -682,6 +684,7 @@ export function SceneStage({
         forward={robotPovForward}
       />
       <MujocoStateSync />
+      <SurvivorSpatialAudio listenerCamera={mainCamera} />
       <SceneEffectsDisabled />
       <DualViewportRenderer
         mainViewRef={mainViewRef}

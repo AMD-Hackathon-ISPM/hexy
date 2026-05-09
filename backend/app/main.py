@@ -962,8 +962,19 @@ async def audio_whisper(websocket: WebSocket) -> None:
     interval_sec = max(1.0, min(interval_sec, 10.0))
     logger.info("audio whisper accepted interval_sec=%s", interval_sec)
 
+    survivor_source_ids: list[str] | None = None
     try:
-        await stream_transcriptions(websocket.send_json, interval_sec=interval_sec)
+        simulator = _get_simulator()
+        survivor_source_ids = simulator.body_names_with_prefix("survivor_")
+    except Exception as exc:
+        logger.warning("audio whisper using default survivor source ids: %s", exc)
+
+    try:
+        await stream_transcriptions(
+            websocket.send_json,
+            interval_sec=interval_sec,
+            source_ids=survivor_source_ids,
+        )
     except WebSocketDisconnect as exc:
         logger.info("audio whisper disconnected code=%s", getattr(exc, "code", None))
         return

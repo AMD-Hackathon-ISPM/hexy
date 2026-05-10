@@ -8,6 +8,10 @@ import os
 import threading
 from typing import Any
 
+# Disable CUDA graph capture — prevents GGML_ASSERT node-count mismatch
+# when llm.reset() is called between create_chat_completion() calls.
+os.environ.setdefault("GGML_CUDA_NO_CAPTURE", "1")
+
 logger = logging.getLogger("uvicorn.error")
 
 

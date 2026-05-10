@@ -16,6 +16,8 @@ const STATUS_LABELS: Record<string, string> = {
   mode: 'Mode',
   simTime: 'Sim Time',
   contacts: 'Contacts',
+  agentMode: 'Agent',
+  agentAction: 'Action',
 }
 
 function formatStatusValue(key: string, value: unknown): string {

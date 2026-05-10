@@ -12,6 +12,9 @@ logger = logging.getLogger("uvicorn.error")
 
 _VALID_ACTIONS = frozenset({"w", "a", "s", "d"})
 _STOP_ACTIONS = frozenset({"stop", "none", ""})
+_TURN_ACTIONS = frozenset({"a", "d"})
+# Batches of 52ms per command: A/D limited to ~4 batches (~208ms) per LLM command
+_MAX_TURN_BATCHES = 4
 
 
 class AutonomousAgent:
@@ -54,6 +57,11 @@ class AutonomousAgent:
         self._latest_audio: dict[str, Any] = {}
         self._last_audio_ts: float = 0.0
         self._last_detections: list[dict] = []
+
+        # Agent behavioural state
+        self._paused: bool = False
+        self._last_action: str = ""
+        self._last_reasoning: str = ""
 
     # ------------------------------------------------------------------
     # Public API
@@ -113,6 +121,30 @@ class AutonomousAgent:
             self._latest_audio = chunk
             self._last_audio_ts = time.time()
 
+    def pause(self) -> None:
+        """Stop all autonomous movement and block sensor→LLM pipeline."""
+        self._paused = True
+        # Drain any queued movement commands
+        while True:
+            try:
+                self._action_queue.get_nowait()
+            except queue.Empty:
+                break
+        logger.info("[agent] paused")
+
+    def resume(self) -> None:
+        """Resume autonomous operation."""
+        self._paused = False
+        logger.info("[agent] resumed")
+
+    def get_state(self) -> dict[str, Any]:
+        return {
+            "running": self._running,
+            "paused": self._paused,
+            "last_action": self._last_action,
+            "last_reasoning": self._last_reasoning,
+        }
+
     # ------------------------------------------------------------------
     # Phase 1: Physics loop
     # ------------------------------------------------------------------
@@ -120,10 +152,8 @@ class AutonomousAgent:
     def _physics_loop(self) -> None:
         logger.info("[agent-physics] started")
         current_key: str | None = None
-        # Batch size: ~quarter gait cycle (WASD_GAIT_PHASE_RATE=4.8 Hz → cycle=0.208s)
-        # 0.052s per batch at dt=0.002 → 26 sim steps; keeps sim_lock short enough
-        # for rendering and manual control to interleave.
-        _BATCH_SEC = 0.052
+        turn_batch_count: int = 0
+        _BATCH_SEC = 0.052  # ~quarter gait cycle at 4.8 Hz
 
         while self._running:
             # Non-blocking check for a new command from the LLM
@@ -134,22 +164,42 @@ class AutonomousAgent:
                     if new_key != current_key:
                         logger.info("[agent-physics] direction → %s", new_key)
                     current_key = new_key
+                    turn_batch_count = 0
                 elif new_key in _STOP_ACTIONS:
                     if current_key is not None:
                         logger.info("[agent-physics] stopped")
                     current_key = None
+                    turn_batch_count = 0
             except queue.Empty:
                 pass
+
+            # Pause overrides everything
+            if self._paused:
+                current_key = None
+                turn_batch_count = 0
+                time.sleep(0.05)
+                continue
 
             if current_key is None:
                 time.sleep(0.05)
                 continue
 
+            # A/D: short burst only — just enough to rotate slightly
+            if current_key in _TURN_ACTIONS:
+                if turn_batch_count >= _MAX_TURN_BATCHES:
+                    current_key = None
+                    turn_batch_count = 0
+                    time.sleep(0.05)
+                    continue
+                turn_batch_count += 1
+            else:
+                turn_batch_count = 0  # W/S: continuous
+
             try:
                 with self._sim_lock:  # type: ignore[union-attr]
                     timestep = float(self._simulator.model.opt.timestep)
                     batch = max(1, round(_BATCH_SEC / timestep))
-                    k = current_key  # capture for lambda
+                    k = current_key
                     self._simulator.drive_key(
                         k,
                         lambda st, _k=k: self._build_control_fn(  # type: ignore[misc]
@@ -169,6 +219,8 @@ class AutonomousAgent:
     def _sensor_loop(self) -> None:
         interval = float(os.getenv("AGENT_SENSOR_INTERVAL_SEC", "2.0"))
         audio_stale_sec = float(os.getenv("AGENT_AUDIO_STALE_SEC", "10.0"))
+        # Bbox area fraction threshold above which a survivor is considered "near"
+        survivor_near_area = float(os.getenv("AGENT_SURVIVOR_NEAR_AREA", "0.20"))
         camera_name = os.getenv("GDINO_CAMERA_DEFAULT")
         logger.info("[agent-sensor] started  interval=%.1fs", interval)
 
@@ -176,6 +228,10 @@ class AutonomousAgent:
             time.sleep(interval)
             if not self._running:
                 break
+
+            # Skip sensing while paused — don't feed new prompts to the LLM
+            if self._paused:
+                continue
 
             context_parts: list[str] = []
 
@@ -200,6 +256,26 @@ class AutonomousAgent:
                             for d in detections
                         )
                         context_parts.append(f"[VISION] {det_text}")
+
+                        # Auto-stop when survivor bbox fills > survivor_near_area of frame
+                        for det in detections:
+                            bbox = det.get("bbox") or []
+                            if len(bbox) == 4:
+                                area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+                                if area > survivor_near_area:
+                                    logger.info(
+                                        "[agent-sensor] survivor near (bbox area=%.2f) — auto-pausing",
+                                        area,
+                                    )
+                                    self.pause()
+                                    try:
+                                        self._prompt_queue.put_nowait({
+                                            "type": "sensor",
+                                            "text": f"[SURVIVOR_NEAR] bbox area={area:.2f} — stopped. Awaiting operator.",
+                                        })
+                                    except queue.Full:
+                                        pass
+                                    break
             except Exception as exc:
                 logger.debug("[agent-sensor] vision error: %s", exc)
 
@@ -286,6 +362,9 @@ class AutonomousAgent:
                     "[agent-llm] → action=%s  reason=%.80s",
                     action, reasoning,
                 )
+                # Persist for /agent/state polling
+                self._last_action = action
+                self._last_reasoning = reasoning
 
                 if action in _VALID_ACTIONS or action in _STOP_ACTIONS:
                     cmd = {"action": action}

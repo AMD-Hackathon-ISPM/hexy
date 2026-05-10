@@ -9,6 +9,7 @@ import { MujocoLoadingOverlay } from './components/MujocoLoadingOverlay'
 import { useMujocoStream } from './hooks/useMujocoStream'
 import { useWhisperStream } from './hooks/useWhisperStream'
 import { useDinoDetections } from './hooks/useDinoDetections'
+import { useAgentState } from './hooks/useAgentState'
 
 const RobotScene = lazy(() => import('./components/RobotScene'))
 const LOADER_READY_PAUSE_MS = 5000
@@ -28,6 +29,7 @@ function App() {
   useMujocoStream()
   useWhisperStream()
   useDinoDetections()
+  useAgentState()
   const [hexyReady, setHexyReady] = useState(false)
   const [hexyError, setHexyError] = useState<string | null>(null)
   const [hexyLoadDetail, setHexyLoadDetail] = useState<string | null>(null)

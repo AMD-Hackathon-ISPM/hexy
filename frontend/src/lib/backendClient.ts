@@ -84,3 +84,14 @@ export function agentRespond(
     signal,
   })
 }
+
+export type AgentState = {
+  running: boolean
+  paused: boolean
+  last_action: string
+  last_reasoning: string
+}
+
+export function getAgentState(): Promise<AgentState> {
+  return requestJson('/agent/state')
+}

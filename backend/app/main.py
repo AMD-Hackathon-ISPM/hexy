@@ -817,10 +817,25 @@ def agent_autonomous_stop() -> dict[str, str]:
     return {"status": "stopped"}
 
 
+@app.get("/agent/state")
+def agent_state() -> dict[str, object]:
+    """Current autonomous agent state — polled by frontend for live reasoning display."""
+    return _autonomous_agent.get_state()
+
+
 @app.post("/agent/respond", responses={503: {"model": ErrorResponse}, 400: {"model": ErrorResponse}})
 def agent_respond(request: AgentRespondRequest) -> dict[str, object]:
     try:
         logger.info("[agent] respond instruction_len=%d", len(request.instruction))
+
+        # Intercept stop/resume keywords before touching the LLM
+        cmd = request.instruction.strip().lower()
+        if cmd in {"stop", "halt", "freeze", "pause"}:
+            _autonomous_agent.pause()
+            return {"text": "Agent paused. Say 'start again' to resume.", "json": {"action": "stop", "reasoning": "Operator commanded stop."}}
+        if cmd in {"start again", "resume", "go", "start", "continue"}:
+            _autonomous_agent.resume()
+            return {"text": "Agent resumed.", "json": {"action": "resume", "reasoning": "Operator commanded resume."}}
 
         # Route operator instruction to the autonomous agent's LLM queue so it
         # drives the robot. We also do an immediate synchronous inference here

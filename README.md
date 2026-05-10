@@ -1,5 +1,4 @@
-# 🦎 HexySAR — Autonomous Hexapod for Cave Search & Rescue
-
+#HexySAR
 > **Send the robot first. Reduce rescuer risk. Find survivors faster.**
 
 HexySAR is an AI-powered hexapod robot system for cave search-and-rescue scenarios. It combines MuJoCo simulation, survivor detection, spatial audio, multimodal reasoning, and a web control interface so an operator can send high-level instructions while the robot explores hazardous cave terrain.

@@ -13,6 +13,12 @@ Monorepo for the Hexy hexapod project: frontend, backend, and learning/MuJoCo si
 
 - Docker (with Compose v2)
 - For GPU training: NVIDIA Container Toolkit
+- Required model bundle (before first build):
+  1. Download: https://drive.google.com/file/d/1AOns_bZGLbrnlYZFbRv-Sieed4Aipxe6/view?usp=sharing
+  2. Extract the ZIP in the repository root (this project folder).
+  3. Ensure extraction creates `modelSetUp/` in root, including:
+     - `modelSetUp/groundingDino/weights`
+     - `modelSetUp/qwen25vl`
 
 ## Stack up (default)
 
@@ -20,6 +26,8 @@ Monorepo for the Hexy hexapod project: frontend, backend, and learning/MuJoCo si
 cp .env.example .env          # only if you want to override the defaults
 docker compose up --build
 ```
+
+> `modelSetUp/` must already exist in the repo root before running the build command.
 
 Open http://localhost:8080. The frontend proxies REST and WebSocket traffic
 (`/health`, `/mujoco/*`, `/assets/*`) to the backend over the compose network,

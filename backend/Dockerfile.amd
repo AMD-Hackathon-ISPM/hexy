@@ -1,0 +1,55 @@
+FROM rocm/pytorch:rocm6.2_ubuntu22.04_py3.10_pytorch_2.3.0
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    MUJOCO_GL=egl \
+    PYOPENGL_PLATFORM=egl \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+ENV CMAKE_BUILD_PARALLEL_LEVEL=16 \
+    MAX_JOBS=16
+
+# ROCm runtime hints for MI300X
+ENV ROCR_VISIBLE_DEVICES=all \
+    HSA_ENABLE_SDMA=0 \
+    PYTORCH_ROCM_ARCH=gfx942
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git \
+        ffmpeg \
+        build-essential \
+        ninja-build \
+        libgl1 \
+        libglib2.0-0 \
+        libegl1 \
+        libgles2 \
+        libosmesa6 \
+        espeak-ng \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt ./
+
+RUN grep -v '^torch' requirements.txt > requirements.docker.txt \
+    && pip install --no-cache-dir -r requirements.docker.txt
+
+RUN pip install --no-cache-dir "cmake>=3.25"
+
+ARG LLAMA_CPP_VERSION=0.3.22
+ARG LLAMA_CPP_HIP_ARCH=gfx942
+RUN CMAKE_ARGS="-GNinja -DGGML_HIPBLAS=on -DAMDGPU_TARGETS=${LLAMA_CPP_HIP_ARCH}" \
+    pip install --no-cache-dir --no-binary=llama-cpp-python \
+    "llama-cpp-python==${LLAMA_CPP_VERSION}"
+
+COPY app ./app
+COPY entrypoint.sh ./entrypoint.sh
+
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+
+EXPOSE 8000
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,4 @@
+# Force LF for all shell scripts so they don't get CRLF on Windows checkouts
+*.sh text eol=lf
+*.py text eol=lf
+Dockerfile text eol=lf

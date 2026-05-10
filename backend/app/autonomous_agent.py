@@ -1,0 +1,283 @@
+from __future__ import annotations
+
+import json
+import logging
+import os
+import queue
+import threading
+import time
+from typing import Any, Callable
+
+logger = logging.getLogger("uvicorn.error")
+
+_VALID_ACTIONS = frozenset({"w", "a", "s", "d"})
+
+
+class AutonomousAgent:
+    """
+    Three-thread autonomous search-and-rescue agent.
+
+    Phase 1 – Physics (spinal cord):
+        Dequeues {"action": "w", "n_steps": 20} commands and executes them via
+        the MuJoCo IK controller. Holds sim_lock while stepping so manual WASD
+        control and rendering don't race.
+
+    Phase 2 – Sensors (autonomic nervous system):
+        Polls DINO + cached audio every AGENT_SENSOR_INTERVAL_SEC seconds.
+        If something is detected it pushes a context string to the LLM queue.
+
+    Phase 3 – Brain (LLM):
+        Blocks on the prompt queue. Runs Qwen inference (~3 s), parses the JSON
+        action, and drops it into the action queue for Phase 1 to execute.
+    """
+
+    def __init__(self) -> None:
+        # action_queue: LLM → physics
+        self._action_queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=2)
+        # prompt_queue: sensors / operator → LLM
+        self._prompt_queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=8)
+
+        self._running = False
+        self._threads: list[threading.Thread] = []
+
+        # Injected at start()
+        self._simulator = None
+        self._dino_service = None
+        self._qwen_service = None
+        self._sim_lock: threading.Lock | None = None
+        self._build_control_fn: Callable | None = None
+
+        # Sensor state (written by sensor thread + whisper WebSocket)
+        self._state_lock = threading.Lock()
+        self._latest_audio: dict[str, Any] = {}
+        self._last_audio_ts: float = 0.0
+        self._last_detections: list[dict] = []
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    @property
+    def running(self) -> bool:
+        return self._running
+
+    def start(
+        self,
+        simulator,
+        dino_service,
+        qwen_service,
+        sim_lock: threading.Lock,
+        build_control_fn: Callable,
+    ) -> None:
+        if self._running:
+            logger.warning("[agent] already running")
+            return
+        self._simulator = simulator
+        self._dino_service = dino_service
+        self._qwen_service = qwen_service
+        self._sim_lock = sim_lock
+        self._build_control_fn = build_control_fn
+        self._running = True
+
+        for target, name in [
+            (self._physics_loop, "agent-physics"),
+            (self._sensor_loop, "agent-sensor"),
+            (self._llm_loop, "agent-llm"),
+        ]:
+            t = threading.Thread(target=target, name=name, daemon=True)
+            t.start()
+            self._threads.append(t)
+
+        logger.info("[agent] autonomous agent started (3 threads)")
+
+    def stop(self) -> None:
+        self._running = False
+        self._threads.clear()
+        logger.info("[agent] stop requested")
+
+    def push_instruction(self, text: str) -> None:
+        """Push an operator instruction directly to the LLM queue."""
+        try:
+            self._prompt_queue.put_nowait({"type": "instruction", "text": text})
+            logger.info("[agent] queued instruction: %.80s", text)
+        except queue.Full:
+            logger.warning("[agent] prompt queue full — dropping instruction")
+
+    def update_audio(self, chunk: dict[str, Any]) -> None:
+        """Called by the whisper WebSocket to update the latest transcript."""
+        with self._state_lock:
+            self._latest_audio = chunk
+            self._last_audio_ts = time.time()
+
+    # ------------------------------------------------------------------
+    # Phase 1: Physics loop
+    # ------------------------------------------------------------------
+
+    def _physics_loop(self) -> None:
+        logger.info("[agent-physics] started")
+        while self._running:
+            try:
+                cmd = self._action_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+
+            key = str(cmd.get("action", "")).lower().strip()
+            n_steps = max(1, int(cmd.get("n_steps", 15)))
+            if key not in _VALID_ACTIONS:
+                continue
+
+            logger.info("[agent-physics] → %s ×%d", key, n_steps)
+            try:
+                with self._sim_lock:  # type: ignore[union-attr]
+                    timestep = float(self._simulator.model.opt.timestep)
+                    min_steps = max(1, min(50, round(0.05 / timestep)))
+                    steps = max(n_steps, min_steps)
+                    self._simulator.drive_key(
+                        key,
+                        lambda st, k=key: self._build_control_fn(  # type: ignore[misc]
+                            self._simulator, k, st
+                        ),
+                        n_steps=steps,
+                    )
+            except Exception as exc:
+                logger.warning("[agent-physics] step failed: %s", exc)
+
+        logger.info("[agent-physics] stopped")
+
+    # ------------------------------------------------------------------
+    # Phase 2: Sensor loop
+    # ------------------------------------------------------------------
+
+    def _sensor_loop(self) -> None:
+        interval = float(os.getenv("AGENT_SENSOR_INTERVAL_SEC", "2.0"))
+        audio_stale_sec = float(os.getenv("AGENT_AUDIO_STALE_SEC", "10.0"))
+        camera_name = os.getenv("GDINO_CAMERA_DEFAULT")
+        logger.info("[agent-sensor] started  interval=%.1fs", interval)
+
+        while self._running:
+            time.sleep(interval)
+            if not self._running:
+                break
+
+            context_parts: list[str] = []
+
+            # Vision
+            try:
+                dino = self._dino_service
+                if dino is not None and dino._model is not None:
+                    cam_id = self._simulator.resolve_camera(camera_name)[0]
+                    with self._sim_lock:  # type: ignore[union-attr]
+                        frame = self._simulator.render_rgb_with_camera_id(640, 360, cam_id)
+                    detections = dino.detect(frame, dino.build_config())
+                    with self._state_lock:
+                        self._last_detections = detections
+                    if detections:
+                        det_text = "; ".join(
+                            f"{d.get('label', '?')} conf={d.get('confidence', 0):.2f}"
+                            for d in detections
+                        )
+                        context_parts.append(f"[VISION] {det_text}")
+            except Exception as exc:
+                logger.debug("[agent-sensor] vision error: %s", exc)
+
+            # Audio
+            now = time.time()
+            with self._state_lock:
+                audio = self._latest_audio.copy()
+                audio_ts = self._last_audio_ts
+
+            if audio and (now - audio_ts) < audio_stale_sec:
+                transcript = audio.get("transcript", "")
+                direction = audio.get("direction", "unknown")
+                dist = audio.get("distance_m", "?")
+                if transcript:
+                    context_parts.append(
+                        f'[AUDIO] "{transcript}" from {direction} ~{dist}m'
+                    )
+
+            if context_parts:
+                text = " | ".join(context_parts)
+                try:
+                    self._prompt_queue.put_nowait({"type": "sensor", "text": text})
+                    logger.info("[agent-sensor] queued: %s", text)
+                except queue.Full:
+                    pass  # LLM is busy; drop this sensor tick
+
+        logger.info("[agent-sensor] stopped")
+
+    # ------------------------------------------------------------------
+    # Phase 3: LLM loop
+    # ------------------------------------------------------------------
+
+    def _llm_loop(self) -> None:
+        from .agent_prompt import get_agent_prompt
+        from .qwen25vl_service import Qwen25VlRequest
+
+        system_prompt = get_agent_prompt()
+        logger.info("[agent-llm] started")
+
+        while self._running:
+            try:
+                item = self._prompt_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+
+            prompt_text = str(item.get("text", "")).strip()
+            if not prompt_text:
+                continue
+
+            qwen = self._qwen_service
+            if qwen is None or not qwen.is_ready:
+                logger.debug("[agent-llm] model not ready — dropping prompt")
+                continue
+
+            with self._state_lock:
+                detections = list(self._last_detections)
+                audio = self._latest_audio.copy()
+
+            user_payload = {
+                "instruction": prompt_text,
+                "detections": detections,
+                "audio": {
+                    "transcript": audio.get("transcript"),
+                    "direction": audio.get("direction"),
+                    "distance_m": audio.get("distance_m"),
+                },
+            }
+
+            try:
+                logger.info("[agent-llm] inferring  type=%s", item.get("type"))
+                result = qwen.infer(
+                    Qwen25VlRequest(
+                        system_prompt=system_prompt,
+                        user_prompt=json.dumps(user_payload, ensure_ascii=True),
+                        max_new_tokens=200,
+                        temperature=0.2,
+                        top_p=0.9,
+                    )
+                )
+                agent_json = result.get("json") or {}
+                action = str(agent_json.get("action", "")).lower().strip()
+                n_steps = max(1, int(agent_json.get("n_steps", 15)))
+                reasoning = str(agent_json.get("reasoning", ""))
+                logger.info(
+                    "[agent-llm] → action=%s n_steps=%d  reason=%.80s",
+                    action, n_steps, reasoning,
+                )
+
+                if action in _VALID_ACTIONS:
+                    cmd = {"action": action, "n_steps": n_steps}
+                    try:
+                        self._action_queue.put_nowait(cmd)
+                    except queue.Full:
+                        # Replace stale queued action with fresher decision
+                        try:
+                            self._action_queue.get_nowait()
+                        except queue.Empty:
+                            pass
+                        self._action_queue.put_nowait(cmd)
+
+            except Exception as exc:
+                logger.warning("[agent-llm] inference failed: %s", exc)
+
+        logger.info("[agent-llm] stopped")

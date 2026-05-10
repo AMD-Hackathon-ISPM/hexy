@@ -3,7 +3,7 @@ services:
     build:
       context: ./backend
       args:
-        LLAMA_CPP_CUDA_ARCH: ${LLAMA_CPP_CUDA_ARCH:-all-major}
+        LLAMA_CPP_CUDA_ARCH: ${LLAMA_CPP_CUDA_ARCH:-86}
     image: hexy-backend:latest
     container_name: hexy-backend
     environment:

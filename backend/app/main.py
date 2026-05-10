@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .autonomous_agent import AutonomousAgent
 from .grounding_dino_service import GroundingDinoService
 from .agent_prompt import get_agent_prompt
 from .mujoco_sim import MujocoSimulator, MujocoState
@@ -114,6 +115,16 @@ _dino_error: Exception | None = None
 _render_executor = ThreadPoolExecutor(max_workers=1)
 _qwen_service: Qwen25VlService | None = None
 _qwen_error: Exception | None = None
+
+# Protects all simulator state mutations (step / drive_key).
+_sim_lock = threading.Lock()
+
+# Autonomous agent singleton
+_autonomous_agent: AutonomousAgent = AutonomousAgent()
+
+# Latest audio context from active whisper WebSocket connections
+_latest_audio: dict[str, object] = {}
+_latest_audio_lock = threading.Lock()
 
 
 class DinoDebugCapture:
@@ -515,6 +526,18 @@ def warm_models() -> None:
         _get_qwen_service().ensure_model_async()
     except Exception:
         logger.exception("[qwen25vl] warmup failed")
+    # Start autonomous agent — the three loops handle unready services gracefully
+    try:
+        sim = _get_simulator()
+        _autonomous_agent.start(
+            simulator=sim,
+            dino_service=_get_dino_service(),
+            qwen_service=_get_qwen_service(),
+            sim_lock=_sim_lock,
+            build_control_fn=_build_wasd_control,
+        )
+    except Exception:
+        logger.exception("[agent] autonomous agent warmup failed")
 
 
 @app.get("/agent/prompt")
@@ -759,51 +782,96 @@ def _build_wasd_control(
 def mujoco_step(request: MujocoStepRequest) -> MujocoState:
     try:
         simulator = _get_simulator()
-        if request.key is not None:
-            key = request.key.lower().strip()
-            n_steps = max(
-                max(1, request.n_steps),
-                min(50, round(0.05 / float(simulator.model.opt.timestep))),
-            )
-            return simulator.drive_key(
-                key,
-                lambda sim_time: _build_wasd_control(simulator, key, sim_time),
-                n_steps=n_steps,
-            )
-        else:
-            ctrl = request.ctrl
-        return simulator.step(ctrl, n_steps=max(1, request.n_steps))
+        with _sim_lock:
+            if request.key is not None:
+                key = request.key.lower().strip()
+                n_steps = max(
+                    max(1, request.n_steps),
+                    min(50, round(0.05 / float(simulator.model.opt.timestep))),
+                )
+                return simulator.drive_key(
+                    key,
+                    lambda sim_time: _build_wasd_control(simulator, key, sim_time),
+                    n_steps=n_steps,
+                )
+            else:
+                ctrl = request.ctrl
+            return simulator.step(ctrl, n_steps=max(1, request.n_steps))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@app.get("/agent/autonomous/status")
+def agent_autonomous_status() -> dict[str, object]:
+    return {"running": _autonomous_agent.running}
+
+
+@app.post("/agent/autonomous/stop")
+def agent_autonomous_stop() -> dict[str, str]:
+    _autonomous_agent.stop()
+    return {"status": "stopped"}
+
+
 @app.post("/agent/respond", responses={503: {"model": ErrorResponse}, 400: {"model": ErrorResponse}})
 def agent_respond(request: AgentRespondRequest) -> dict[str, object]:
     try:
         logger.info("[agent] respond instruction_len=%d", len(request.instruction))
+
+        # Route operator instruction to the autonomous agent's LLM queue so it
+        # drives the robot. We also do an immediate synchronous inference here
+        # and return it so the frontend can display the reasoning.
+        _autonomous_agent.push_instruction(request.instruction)
+
         qwen = _get_qwen_service()
+
+        # Auto-capture DINO detections if none provided
+        detections = request.detections or []
+        if not detections:
+            try:
+                sim = _get_simulator()
+                dino = _get_dino_service()
+                cam_id = sim.resolve_camera(os.getenv("GDINO_CAMERA_DEFAULT"))[0]
+                frame = _render_executor.submit(
+                    sim.render_rgb_with_camera_id, 640, 360, cam_id
+                ).result(timeout=2.0)
+                detections = dino.detect(frame, dino.build_config())
+            except Exception as dino_exc:
+                logger.warning("[agent] auto-DINO skipped: %s", dino_exc)
+
+        # Fall back to cached whisper audio if caller didn't supply it
+        audio_transcript = request.audio_transcript
+        audio_direction = request.audio_direction
+        audio_distance_m = request.audio_distance_m
+        if audio_transcript is None:
+            with _latest_audio_lock:
+                if _latest_audio:
+                    audio_transcript = str(_latest_audio.get("transcript", "")) or None
+                    audio_direction = audio_direction or str(_latest_audio.get("direction", ""))
+                    raw_dist = _latest_audio.get("distance_m")
+                    audio_distance_m = audio_distance_m or (float(raw_dist) if raw_dist is not None else None)
+
         system_prompt = get_agent_prompt()
         user_payload = {
             "instruction": request.instruction,
-            "detections": request.detections or [],
+            "detections": detections,
             "audio": {
-                "transcript": request.audio_transcript,
-                "direction": request.audio_direction,
-                "distance_m": request.audio_distance_m,
+                "transcript": audio_transcript,
+                "direction": audio_direction,
+                "distance_m": audio_distance_m,
             },
         }
-        user_text = json.dumps(user_payload, ensure_ascii=True)
-        payload = Qwen25VlRequest(
-            system_prompt=system_prompt,
-            user_prompt=user_text,
-            image_b64=request.image_base64,
-            max_new_tokens=request.max_new_tokens or 256,
-            temperature=request.temperature or 0.2,
-            top_p=request.top_p or 0.9,
+        result = qwen.infer(
+            Qwen25VlRequest(
+                system_prompt=system_prompt,
+                user_prompt=json.dumps(user_payload, ensure_ascii=True),
+                max_new_tokens=request.max_new_tokens or 256,
+                temperature=request.temperature or 0.2,
+                top_p=request.top_p or 0.9,
+            )
         )
-        return qwen.infer(payload)
+        return result
     except RuntimeError as exc:
         if "loading" in str(exc).lower():
             return {"text": "Model loading... try again in a moment.", "json": None, "status": "loading"}
@@ -969,9 +1037,16 @@ async def audio_whisper(websocket: WebSocket) -> None:
     except Exception as exc:
         logger.warning("audio whisper using default survivor source ids: %s", exc)
 
+    async def _send_and_cache(msg: dict[str, object]) -> None:
+        if "transcript" in msg:
+            with _latest_audio_lock:
+                _latest_audio.update(msg)
+            _autonomous_agent.update_audio(dict(msg))
+        await websocket.send_json(msg)
+
     try:
         await stream_transcriptions(
-            websocket.send_json,
+            _send_and_cache,
             interval_sec=interval_sec,
             source_ids=survivor_source_ids,
         )

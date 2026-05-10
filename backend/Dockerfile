@@ -9,7 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 ENV CMAKE_BUILD_PARALLEL_LEVEL=16 \
-    MAX_JOBS=4
+    MAX_JOBS=16
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

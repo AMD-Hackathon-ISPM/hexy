@@ -134,6 +134,8 @@ class Qwen25VlService:
         # The user prompt already contains structured JSON with
         # detection + audio data, so vision is not required.
 
+        # Reset KV cache between calls to prevent llama_decode -1 (context overflow).
+        self._llm.reset()
         result = self._llm.create_chat_completion(
             messages=messages,
             max_tokens=payload.max_new_tokens,

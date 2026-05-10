@@ -46,6 +46,7 @@ class AutonomousAgent:
         self._qwen_service = None
         self._sim_lock: threading.Lock | None = None
         self._build_control_fn: Callable | None = None
+        self._render_fn: Callable | None = None
 
         # Sensor state (written by sensor thread + whisper WebSocket)
         self._state_lock = threading.Lock()
@@ -68,6 +69,7 @@ class AutonomousAgent:
         qwen_service,
         sim_lock: threading.Lock,
         build_control_fn: Callable,
+        render_fn: Callable | None = None,
     ) -> None:
         if self._running:
             logger.warning("[agent] already running")
@@ -77,6 +79,7 @@ class AutonomousAgent:
         self._qwen_service = qwen_service
         self._sim_lock = sim_lock
         self._build_control_fn = build_control_fn
+        self._render_fn = render_fn
         self._running = True
 
         for target, name in [
@@ -166,8 +169,13 @@ class AutonomousAgent:
                 dino = self._dino_service
                 if dino is not None and dino._model is not None:
                     cam_id = self._simulator.resolve_camera(camera_name)[0]
-                    with self._sim_lock:  # type: ignore[union-attr]
-                        frame = self._simulator.render_rgb_with_camera_id(640, 360, cam_id)
+                    if self._render_fn is not None:
+                        # Route through the shared render executor so the EGL context
+                        # stays in one thread (avoids EGL_BAD_ACCESS with mujoco_detections)
+                        frame = self._render_fn(640, 360, cam_id)
+                    else:
+                        with self._sim_lock:  # type: ignore[union-attr]
+                            frame = self._simulator.render_rgb_with_camera_id(640, 360, cam_id)
                     detections = dino.detect(frame, dino.build_config())
                     with self._state_lock:
                         self._last_detections = detections

@@ -535,6 +535,9 @@ def warm_models() -> None:
             qwen_service=_get_qwen_service(),
             sim_lock=_sim_lock,
             build_control_fn=_build_wasd_control,
+            render_fn=lambda w, h, cam_id: _render_executor.submit(
+                sim.render_rgb_with_camera_id, w, h, cam_id
+            ).result(),
         )
     except Exception:
         logger.exception("[agent] autonomous agent warmup failed")

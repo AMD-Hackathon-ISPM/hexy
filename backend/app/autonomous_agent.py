@@ -11,6 +11,7 @@ from typing import Any, Callable
 logger = logging.getLogger("uvicorn.error")
 
 _VALID_ACTIONS = frozenset({"w", "a", "s", "d"})
+_STOP_ACTIONS = frozenset({"stop", "none", ""})
 
 
 class AutonomousAgent:
@@ -118,29 +119,43 @@ class AutonomousAgent:
 
     def _physics_loop(self) -> None:
         logger.info("[agent-physics] started")
+        current_key: str | None = None
+        # Batch size: ~quarter gait cycle (WASD_GAIT_PHASE_RATE=4.8 Hz → cycle=0.208s)
+        # 0.052s per batch at dt=0.002 → 26 sim steps; keeps sim_lock short enough
+        # for rendering and manual control to interleave.
+        _BATCH_SEC = 0.052
+
         while self._running:
+            # Non-blocking check for a new command from the LLM
             try:
-                cmd = self._action_queue.get(timeout=0.5)
+                cmd = self._action_queue.get_nowait()
+                new_key = str(cmd.get("action", "")).lower().strip()
+                if new_key in _VALID_ACTIONS:
+                    if new_key != current_key:
+                        logger.info("[agent-physics] direction → %s", new_key)
+                    current_key = new_key
+                elif new_key in _STOP_ACTIONS:
+                    if current_key is not None:
+                        logger.info("[agent-physics] stopped")
+                    current_key = None
             except queue.Empty:
+                pass
+
+            if current_key is None:
+                time.sleep(0.05)
                 continue
 
-            key = str(cmd.get("action", "")).lower().strip()
-            n_steps = max(1, int(cmd.get("n_steps", 15)))
-            if key not in _VALID_ACTIONS:
-                continue
-
-            logger.info("[agent-physics] → %s ×%d", key, n_steps)
             try:
                 with self._sim_lock:  # type: ignore[union-attr]
                     timestep = float(self._simulator.model.opt.timestep)
-                    min_steps = max(1, min(50, round(0.05 / timestep)))
-                    steps = max(n_steps, min_steps)
+                    batch = max(1, round(_BATCH_SEC / timestep))
+                    k = current_key  # capture for lambda
                     self._simulator.drive_key(
-                        key,
-                        lambda st, k=key: self._build_control_fn(  # type: ignore[misc]
-                            self._simulator, k, st
+                        k,
+                        lambda st, _k=k: self._build_control_fn(  # type: ignore[misc]
+                            self._simulator, _k, st
                         ),
-                        n_steps=steps,
+                        n_steps=batch,
                     )
             except Exception as exc:
                 logger.warning("[agent-physics] step failed: %s", exc)
@@ -266,15 +281,14 @@ class AutonomousAgent:
                 )
                 agent_json = result.get("json") or {}
                 action = str(agent_json.get("action", "")).lower().strip()
-                n_steps = max(1, int(agent_json.get("n_steps", 15)))
                 reasoning = str(agent_json.get("reasoning", ""))
                 logger.info(
-                    "[agent-llm] → action=%s n_steps=%d  reason=%.80s",
-                    action, n_steps, reasoning,
+                    "[agent-llm] → action=%s  reason=%.80s",
+                    action, reasoning,
                 )
 
-                if action in _VALID_ACTIONS:
-                    cmd = {"action": action, "n_steps": n_steps}
+                if action in _VALID_ACTIONS or action in _STOP_ACTIONS:
+                    cmd = {"action": action}
                     try:
                         self._action_queue.put_nowait(cmd)
                     except queue.Full:

@@ -22,26 +22,15 @@ AVAILABLE MOVEMENT COMMANDS
 
 You may ONLY use these movement actions:
 
-- w  -> move forward
-- s  -> move backward
-- a  -> turn left
-- d  -> turn right
-- stop -> stop movement
+- w    -> move forward  (continuous until changed)
+- s    -> move backward (continuous until changed)
+- a    -> turn left     (continuous until changed)
+- d    -> turn right    (continuous until changed)
+- stop -> stop moving
 
---------------------------------------------------
-MOTION API
---------------------------------------------------
-
-Movement commands are sent to:
-
-POST /mujoco/step
-
-Payload format:
-
-{
-  "key": "w",
-  "n_steps": 20
-}
+Each command runs continuously until you issue a different one.
+You do NOT need to repeat the same command every tick.
+Only send a new command when you want to change direction or stop.
 
 --------------------------------------------------
 REASONING RULES
@@ -111,24 +100,28 @@ Example:
 
 {
   "reasoning": "Possible survivor detected with distress audio confirmation.",
-  "action": "w",
-  "n_steps": 20
+  "action": "w"
 }
 
 Another example:
 
 {
   "reasoning": "Audio detected from left corridor. Investigating source.",
-  "action": "a",
-  "n_steps": 12
+  "action": "a"
 }
 
 Another example:
 
 {
   "reasoning": "No survivors detected. Continuing cautious exploration.",
-  "action": "w",
-  "n_steps": 10
+  "action": "w"
+}
+
+Another example:
+
+{
+  "reasoning": "Survivor reached. Stopping to assess.",
+  "action": "stop"
 }
 
 --------------------------------------------------

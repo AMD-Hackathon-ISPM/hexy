@@ -78,6 +78,9 @@ HEXAPOD_SPAWN_Z = FLOOR_Z + HEXAPOD_FLOOR_CLEARANCE - HEXAPOD_FOOT_BOTTOM_REL_Z
 ROBOT_SPAWN_FRACTION = 0.12
 CAVE_PATH_FRACTION = 0.42
 MUJOCO_DINO_CAMERA_HEIGHT = 0.30
+ROOM_MODE = False
+ROOM_HALF_SIZE = 6.0
+ROOM_HEIGHT = 2.0
 
 # ── Organic wall noise ──────────────────────────────────────────────────────
 NOISE_SEED       = 42
@@ -125,6 +128,7 @@ STONE_MATERIALS = [
     ("cave_stone_damp", "0.16 0.17 0.16 1.0", "0.03", "0.010"),
     ("cave_stone_olive", "0.29 0.28 0.21 1.0", "0.04", "0.012"),
 ]
+WALL_MATERIAL_NAME = "cave_stone_dark"
 
 
 @dataclass
@@ -574,7 +578,7 @@ def generate_cave_mesh_sections(path_points, frames,
                                 contype: int = 1,
                                 conaffinity: int = 1,
                                 openings: Optional[list] = None) -> List[CaveMeshSpec]:
-    """Build low-poly cave wall sections so adjacent chunks vary in stone color."""
+    """Build low-poly cave wall sections with one shared wall material."""
     verts = _build_vertex_grid(path_points, frames, extra_offset, seed_offset)
     n_slices = len(verts)
     if n_slices < 2:
@@ -602,12 +606,11 @@ def generate_cave_mesh_sections(path_points, frames,
                     tris.append([v00, v10, v11])
                     tris.append([v00, v11, v01])
 
-        material = STONE_MATERIALS[(section_idx + material_offset) % len(STONE_MATERIALS)][0]
         sections.append(
             CaveMeshSpec(
                 name=f"{name_prefix}_{section_idx:02d}",
                 filename=f"{filename_prefix}_{section_idx:02d}.stl",
-                material=material,
+                material=WALL_MATERIAL_NAME,
                 triangles=_valid_triangles(tris),
                 contype=contype,
                 conaffinity=conaffinity,
@@ -1354,7 +1357,7 @@ def _normalise_cave_meshes(
         asset_lines.append(f'    <mesh name="cave_outer" file="{outer_stl}" scale="1 1 1"/>')
         geom_lines.append(
             '    <geom name="cave_wall_outer" type="mesh" mesh="cave_outer" '
-            'material="cave_stone_damp" contype="0" conaffinity="0"/>'
+            f'material="{WALL_MATERIAL_NAME}" contype="0" conaffinity="0"/>'
         )
     return "\n".join(asset_lines), "\n".join(geom_lines)
 
@@ -1543,7 +1546,7 @@ def write_mujoco_xml(cave_meshes: Union[str, List[CaveMeshSpec]],
       contype="1" conaffinity="1"
       friction="1.0 0.005 0.0001"/>
 
-    <!-- ── Cave wall sections (collision + mixed stone visuals) ─── -->
+    <!-- ── Cave wall sections (collision + solid dark-grey visual) ─── -->
 {cave_wall_geom_xml}
 
     <!-- ── Rock obstacles ───────────────────────────────────────── -->
@@ -2090,9 +2093,9 @@ def main():
     print(f"       entrance path starts at "
           f"({entrance_xyz[0]:.2f}, {entrance_xyz[1]:.2f}, {entrance_xyz[2]:.2f})")
 
-        print("\n[3/7]  Computing Frenet frames…")
-        frames = compute_frames(path_points)
-        print(f"       {len(frames)} frames")
+    print("\n[3/7]  Computing Frenet frames…")
+    frames = compute_frames(path_points)
+    print(f"       {len(frames)} frames")
 
     # ── Cave meshes ─────────────────────── ────────────────────────────────
     print("\n[4/7]  Generating low-poly cave wall layers…")

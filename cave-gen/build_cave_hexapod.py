@@ -37,6 +37,13 @@ def remove_world_body(worldbody: ET.Element, name: str) -> ET.Element:
     raise ValueError(f"cave scene is missing worldbody body {name!r}")
 
 
+def remove_rock_geoms(worldbody: ET.Element) -> None:
+    for geom in list(worldbody.findall("geom")):
+        name = geom.get("name") or ""
+        if name.startswith("rock_"):
+            worldbody.remove(geom)
+
+
 def parse_vec(raw: str | None, default: tuple[float, float, float]) -> tuple[float, float, float]:
     if not raw:
         return default
